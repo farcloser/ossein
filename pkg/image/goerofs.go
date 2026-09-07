@@ -1,5 +1,3 @@
-//go:build darwin && arm64
-
 package image
 
 // This produces the ONLY rootfs format ossein stores (rootfsCodec in
