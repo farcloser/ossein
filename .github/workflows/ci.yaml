@@ -51,7 +51,7 @@ jobs:
         # These names are NOT the ruleset's required contexts — the `gate` job
         # below is, precisely so this list can change without touching any
         # repository's branch protection.
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2025, windows-11-arm]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-26, windows-2025, windows-11-arm]
     runs-on: ${{ matrix.os }}
     # Generous for the windows legs: those runners are markedly slower, and the
     # per-GOOS lint recipes now run three legs each.
