@@ -1,3 +1,5 @@
+//go:build darwin
+
 package vz
 
 import "github.com/farcloser/ossein/third_party/vz/internal/osversion"
