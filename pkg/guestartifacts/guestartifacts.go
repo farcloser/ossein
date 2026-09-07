@@ -83,6 +83,15 @@ func materialize(cacheRoot, name string, data []byte, stampedDigest string) (str
 	}
 
 	if err := filesystem.WriteFile(path, data, filesystem.FilePermissionsPrivate); err != nil {
+		// Racing extractors write identical bytes, so losing the race is a
+		// win: on windows the final rename fails with "Access is denied"
+		// while the winner's rename or a reader holds the destination —
+		// there is no atomic replace-over-open-file there. If the winner's
+		// file is in place, that is the artifact; anything else is the error.
+		if info, statErr := os.Stat(path); statErr == nil && info.Size() == int64(len(data)) {
+			return path, nil
+		}
+
 		return "", fmt.Errorf("extract %s: %w", name, err)
 	}
 
