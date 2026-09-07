@@ -18,7 +18,7 @@ require (
 	github.com/google/go-containerregistry v0.21.9
 	github.com/mdlayher/vsock v1.3.0
 	github.com/moby/sys/capability v0.4.0
-	github.com/mycophonic/primordium v0.8.1-0.20260816071930-93b4edabd29b
+	github.com/mycophonic/primordium v0.9.0
 	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/mod v0.40.0
@@ -29,11 +29,11 @@ require (
 
 require (
 	github.com/anchore/go-lzo v0.1.1 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/docker/cli v29.7.2+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.8 // indirect
 	github.com/elliotwutingfeng/asciiset v0.0.0-20260801111138-45c5fff54b41 // indirect
-	github.com/forkcloser/blake3 v0.0.0-20260803064325-464007c72da9 // indirect
+	github.com/forkcloser/blake3 v0.0.0-20260906214008-90f79994b64e // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/go-licenses/v2 v2.0.1 // indirect
