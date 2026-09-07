@@ -34,7 +34,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"path/filepath"
+	"path"
 	"slices"
 	"strings"
 
@@ -201,8 +201,8 @@ func (f *flattener) entry(layerIdx int, hdr *tar.Header, content *tar.Reader) er
 	// writer's format guess.
 	hdr.Format = tar.FormatPAX
 
-	dirname := filepath.Dir(hdr.Name)
-	basename := filepath.Base(hdr.Name)
+	dirname := path.Dir(hdr.Name)
+	basename := path.Base(hdr.Name)
 
 	if basename == opaqueMarker {
 		f.opaques[dirname] = append(f.opaques[dirname], layerIdx)
@@ -211,7 +211,7 @@ func (f *flattener) entry(layerIdx int, hdr *tar.Header, content *tar.Reader) er
 	}
 
 	if deleted, isWhiteout := strings.CutPrefix(basename, whiteoutPrefix); isWhiteout {
-		target := filepath.Join(dirname, deleted)
+		target := path.Join(dirname, deleted)
 		f.tombstones[target] = append(f.tombstones[target], layerIdx)
 
 		if _, ok := f.decided[target]; !ok {
@@ -243,7 +243,7 @@ func (f *flattener) entry(layerIdx int, hdr *tar.Header, content *tar.Reader) er
 // same-layer whiteout-plus-child is malformed input that upstream also
 // hides); an opaque marker spares its own layer, per the OCI spec.
 func (f *flattener) hiddenAt(name string, layerIdx int) bool {
-	for dir := filepath.Dir(name); ; dir = filepath.Dir(dir) {
+	for dir := path.Dir(name); ; dir = path.Dir(dir) {
 		if d, ok := f.decided[dir]; ok && d.hides {
 			return true
 		}
@@ -462,7 +462,7 @@ func (f *flattener) visibleTo(name string, srcLayer, linkLayer int) bool {
 		return false
 	}
 
-	for dir := filepath.Dir(name); ; dir = filepath.Dir(dir) {
+	for dir := path.Dir(name); ; dir = path.Dir(dir) {
 		if anyInWindow(f.tombstones[dir], srcLayer, linkLayer) {
 			return false
 		}
@@ -506,7 +506,7 @@ func (f *flattener) dropDangling() {
 // the path before cleaning is what makes "etc", "/etc" and "./etc" collide
 // instead of coexisting.
 func normalize(name string) string {
-	return strings.TrimPrefix(filepath.Clean(sep+name), sep)
+	return strings.TrimPrefix(path.Clean(sep+name), sep)
 }
 
 // escapingLink reports whether a symlink or hardlink entry has a RELATIVE
@@ -519,12 +519,12 @@ func escapingLink(hdr *tar.Header) bool {
 		return false
 	}
 
-	if filepath.IsAbs(hdr.Linkname) {
+	if path.IsAbs(hdr.Linkname) {
 		return false
 	}
 
 	// #nosec G305 -- the joined path is only inspected, never opened
-	resolved := filepath.Clean(filepath.Join(filepath.Dir(normalize(hdr.Name)), hdr.Linkname))
+	resolved := path.Clean(path.Join(path.Dir(normalize(hdr.Name)), hdr.Linkname))
 
 	return strings.HasPrefix(resolved, "..")
 }
