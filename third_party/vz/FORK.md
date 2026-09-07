@@ -222,3 +222,12 @@ then re-strip, or keep upstream whole if the surface has become wanted.
   its `go.mod`/`go.sum` were removed so it is part of ossein's module rather
   than a nested one. Its own dependency, `Code-Hex/go-infinity-channel`, is
   now a direct requirement of ossein
+
+## Build constraints
+
+Every Go file carries `//go:build darwin` (upstream leaves most of them
+unconstrained and relies on `#cgo darwin` directives, which do not stop a
+non-darwin toolchain from compiling the `import "C"` preamble). Without the
+constraint, `go vet`, `golangci-lint` and `go test ./...` on the linux and
+windows legs fail on `Foundation/Foundation.h: No such file or directory`.
+A refresh from upstream must re-apply the tag.

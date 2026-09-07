@@ -1,3 +1,5 @@
+//go:build darwin
+
 package vz
 
 // Error type returned by the Virtualization framework.
