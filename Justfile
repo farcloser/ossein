@@ -225,7 +225,7 @@ _embed-initfs: initfs
 
 # Fetch + cosign/sha verify the pinned guest kernel and place it where //go:embed
 # bundles it (pkg/guestartifacts/kernel-arm64). BUILD-TIME only — the runtime carries
-# no network or cosign. Uses the aqua-pinned cosign + curl.
+# no network or cosign.
 fetch-kernel:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -238,14 +238,15 @@ fetch-kernel:
     cosign verify-blob --bundle "$tmp/SHA256SUMS.cosign.bundle" \
         --certificate-identity-regexp "{{ guest_kernel_identity }}" \
         --certificate-oidc-issuer "{{ guest_kernel_issuer }}" "$tmp/SHA256SUMS"
-    # No single digest tool exists everywhere: linux and windows git-bash ship
-    # coreutils sha256sum, macOS ships perl shasum (as the canonical setup-aqua
-    # action does it).
-    if command -v sha256sum >/dev/null 2>&1; then sha256() { sha256sum "$@"; }; else sha256() { shasum -a 256 "$@"; }; fi
-    ( cd "$tmp" && grep ' kernel-arm64$' SHA256SUMS | sha256 -c - )
+    # Hash from the project root, not from a `cd "$tmp"`: pinned tools resolve from the working directory.
+    actual=$(sha256sum "$tmp/kernel-arm64" | cut -d' ' -f1)
+    signed=$(grep ' kernel-arm64$' "$tmp/SHA256SUMS" | cut -d' ' -f1)
+    if [ "$actual" != "$signed" ]; then
+        echo "kernel digest mismatch: signed manifest says $signed, got $actual" >&2
+        exit 1
+    fi
     # The in-repo digest pin: cosign proves WHO signed, this proves WHICH bytes —
     # a re-published tag or re-signed asset cannot slip through.
-    actual=$(sha256 "$tmp/kernel-arm64" | cut -d' ' -f1)
     if [ "$actual" != "{{ guest_kernel_sha256 }}" ]; then
         echo "kernel digest mismatch: pinned {{ guest_kernel_sha256 }}, got $actual" >&2
         echo "(bumping the kernel? update guest_kernel_sha256 in the Justfile)" >&2
