@@ -64,6 +64,13 @@ just build        # fetches + verifies the pinned guest kernel, builds the initf
 
 `just build` is the only sanctioned build (see the note under TL;DR).
 
+### Releasing
+
+From a clean `main`, `just do release vX.Y.Z` creates the signed tag and pushes
+it; the release workflow builds the binary, signs the checksums keyless (cosign,
+Fulcio) and publishes the GitHub release. Consumers verify it as described under
+"From a release" above.
+
 ## Motivation
 
 Running buildkitd on macOS is not new.
