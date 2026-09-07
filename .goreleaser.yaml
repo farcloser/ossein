@@ -1,0 +1,63 @@
+# The release shape is the twin of `just build` (root Justfile) and of the
+# shared `just do build go` release recipe (.limen/just/build-go.just): the same
+# guest artifacts embedded, the same CGO/VZ link, the same flags, the same
+# ad-hoc codesign with the VZ entitlement. A change to any of them lands in
+# all of them. Runs on macos-26 (.github/workflows/release.yaml): the vendored
+# vz needs the macOS 26 SDK, and only a macOS runner can link against
+# Virtualization.framework.
+version: 2
+project_name: ossein
+dist: build/release
+
+before:
+  hooks:
+    # The verified guest kernel (cosign + pinned sha256) and the initfs built
+    # from this tree, placed where //go:embed expects them — what `just build`
+    # does first. The kernel is fetched only when missing.
+    - just _guest-artifacts
+
+builds:
+  - main: ./cmd/ossein
+    binary: ossein
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    buildmode: pie
+    ldflags:
+      # main.version from the tag; main.buildkitImage from the Justfile's
+      # digest-pinned buildkit ref, exported as BUILD_GO_LDFLAGS by the root
+      # Justfile so the pin lives in one place (`just do release` runs
+      # goreleaser under that environment).
+      - -s -w -X main.version={{ .Version }} {{ .Env.BUILD_GO_LDFLAGS }}
+    targets:
+      - darwin_arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    hooks:
+      # Ad-hoc signature carrying the Virtualization entitlement — the same
+      # signature `just build` applies. Ad hoc, because there is no Apple
+      # developer account behind this project: a downloaded binary is
+      # quarantined by Gatekeeper until the user clears it (README, Install).
+      post:
+        - codesign --force --sign - --timestamp=none --entitlements vz.entitlements {{ .Path }}
+
+archives:
+  - formats: ["tar.gz"]
+
+checksum:
+  name_template: checksums.txt
+
+signs:
+  - cmd: sh
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - -c
+      - 'if [ -n "${COSIGN_KEY:-}" ]; then cosign sign-blob --yes --key "${COSIGN_KEY}" --use-signing-config=false --bundle "${signature}" "${artifact}"; else cosign sign-blob --yes --bundle "${signature}" "${artifact}"; fi'
+
+release:
+  prerelease: auto
+  replace_existing_artifacts: true
+
+changelog:
+  sort: asc

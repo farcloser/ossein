@@ -21,3 +21,7 @@ WIP_*
 # Guest artifacts embedded at build time (just build fetches/builds them)
 /pkg/guestartifacts/kernel-arm64
 /pkg/guestartifacts/initfs.cpio
+
+# Engineering journals (docs/): local notes and measurement records, kept
+# next to the code and out of the repository — the README is what ships.
+/docs/
