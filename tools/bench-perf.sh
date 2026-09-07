@@ -12,30 +12,11 @@
 #   epoll-wait       short-sleep granularity — NOT epoll, see below  Mops/sec  higher
 #   mem-memcpy       memory bandwidth                             GB/sec    higher
 #
-# epoll-wait DOES NOT MEASURE EPOLL, and its name is the only reason anyone thinks it does.
-# The bench's writer thread feeds every worker — 192 eventfds (nthreads x nfds), then
-# `nanosleep(500ns)` — and that sleep, not epoll, sets the ceiling: throughput comes out at
-# (nthreads x nfds) ops per sleep. A kernel whose short sleeps round up to a timer tick
-# starves the workers and posts a number ~8x lower while its epoll is fine. Measured
-# 2026-07-15 (EPOLL-TIMER.md): a 500ns sleep costs us ~54us (the 50us default timer slack;
-# CONFIG_HIGH_RES_TIMERS=y) and OrbStack ~925us (tick-granular, ~HZ=1000) — so we post
-# ~550k and they post ~66k, and NEITHER number is about epoll. We are consumer-bound at our
-# real ceiling (3 workers / 1.8us per op = 1.67M ops/s); they are writer-bound at 192/ms.
-# The row still earns its place — sub-ms sleep granularity is a real kernel property that
-# real workloads pay for (short poll timeouts, backoff loops, Go/Node timers) — but read it
-# as THAT, and never as evidence about epoll or about a runtime's IO path.
-# Median of RUNS, with the OBSERVED spread, each side reported separately: `0.081 +4%/-2%`
-# means the slowest of the RUNS samples came in 4% above the median and the fastest 2% below.
-# This row's measured noise floor, not an estimate. The two sides together span what a single
-# +-N% used to state: on a quiet host, ~2-6% total for the usecs/op benches, ~5-10% for
-# sched-messaging (it is short and fork-heavy).
-# The sides are NOT expected to match, and the asymmetry is the point: a bench can only get so
-# fast, so the minus side is close to the floor of what the machine can do, while anything
-# stealing the host stretches the plus side without touching it. A fat +N% next to a thin -M%
-# is interference, not a slower kernel — the median is still the reading. Both sides fat means
-# the row is genuinely unstable.
-# RULE OF THUMB: a gap smaller than the two rows' spreads is not a result. If every row's
-# spread inflates at once, the host is busy — stop and re-run rather than believe it.
+# epoll-wait does NOT measure epoll: the writer's nanosleep(500ns) per 192 eventfds sets the
+# ceiling, so a kernel whose short sleeps round to a tick posts ~8x lower with a fine epoll.
+# Read it as sub-ms sleep granularity, never as an IO-path result.
+# Median of RUNS with the observed +max%/-min% spread. A gap smaller than the two rows'
+# spreads is not a result; if every spread inflates at once the host is busy — re-run.
 # The preflight prints each target's KERNEL VERSION: this suite compares guest kernels, so
 # that is the primary variable and it should never be inferred.
 # `perf bench` is userspace + unprivileged (no PMU, no perf_event_open), so it runs in an
@@ -43,8 +24,7 @@
 #
 # Every runtime is pinned to CPUS *visible* CPUs; the per-runtime pinning rationale
 # (docker --cpuset mask, apple-container's +1 mgmt vCPU, rootless podman/lima needing a
-# CPUS-wide machine because cpuset isn't delegated) is the same as bench-external.sh —
-# this reuses it verbatim and adds lima (whose in-VM CLI is detected, not assumed).
+# CPUS-wide machine because cpuset isn't delegated) is the same as bench-external.sh.
 #
 # NOT a boot / end-to-end comparison (shared-VM vs per-VM + re-extraction).
 #
@@ -99,20 +79,14 @@ PBENCHES=(
   "sched-messaging:sched messaging:sec:lower:last"
   "sched-pipe:sched pipe:usecs/op:lower:last"
   "syscall-basic:syscall basic:sec/10M calls:lower:last"
-  # fork+execve ARE the container-startup path — the thing ossein exists to make fast
-  # (OSSEIN-PERF.md) — and they are fork/slab-heavy, the ground SLUB_TINY cost us six months on
-  # (SCHED-MESS.md). Nothing else in this suite covers process creation. First readings
-  # 2026-07-15: fork 139 us/op vs 200 for BOTH nopatch and orbstack — our patches buy ~31% that
-  # no other row credits; execve 346 vs orbstack's 295 — a ~15% gap where THEY win, on the path
-  # we care most about. Both default to -l 10000 (the bench caps it itself "to save time"), so
-  # no -l here — and note -f simple prints TOTAL SECONDS at ms resolution, hence the units.
-  # fork is noisy run-to-run (70-139 us/op observed); that is what median x RUNS + the spread
-  # column are for. Read the spread before believing any fork delta.
+  # fork/execve: the container-start path; nothing else here covers process creation. Both
+  # default to -l 10000 (the bench caps it), so no -l; -f simple prints TOTAL seconds at ms
+  # resolution, hence the units. fork is noisy run-to-run — read the spread first.
   "syscall-fork:syscall fork:sec/10k forks:lower:last"
   "syscall-execve:syscall execve:sec/10k execs:lower:last"
   "futex-hash:futex hash -r 3:Mops/sec:higher:avgops"
   # Named for what it measures, not for the perf sub-command it runs — the writer's
-  # nanosleep(500ns) is the ceiling here, not epoll. See the header + EPOLL-TIMER.md.
+  # nanosleep(500ns) is the ceiling here, not epoll.
   "epoll-wait (short-sleep granularity, NOT epoll):epoll wait -r 3:Mops/sec:higher:avgops"
   "mem-memcpy:mem memcpy -s 64MB:GB/sec:higher:bps"
 )
@@ -155,11 +129,7 @@ pval() {  # (perf output on stdin) -> number; $PARSE selects the extractor
   esac
 }
 
-# -> "<median> <spread>", where spread is the preformatted "+u%/-d%" token: how far ABOVE the
-# median the max sits and how far BELOW it the min sits, over the RUNS samples we already take.
-# The run-to-run noise floor OF THIS ROW, measured rather than assumed. Read it before believing
-# any delta — a 3% gap between two rows spanning 8% of noise is not a result. It also catches a
-# disturbed host: if every row's spread inflates at once, something else is running.
+# -> "<median> <spread>", spread being the preformatted "+u%/-d%" token.
 prun_med() {
   local vals=() out v med spread
   for _ in $(seq "$RUNS"); do
@@ -208,7 +178,7 @@ if ! focus_skip && lima_avail && ! ssh -Q cipher 2>/dev/null | grep -q 'aes128-g
   fi
 fi
 
-# --- WFE canary (SCHED-RESPONSE.md 3.5) ---
+# --- WFE canary ---
 # kernel/patches/0002 (polling idle) is viable ONLY because VZ does not trap WFE: the idle
 # CPU parks in monitor-armed WFE waiting for a remote store, and wakers elide the IPI. Apple
 # documents NO WFI/WFE trap behaviour — it is empirical, per-stack, and a macOS update could
@@ -230,7 +200,7 @@ if [ -x "$B/wfeprobe" ]; then
   else
     echo "!! WFE CANARY FAILED: sevl+wfe = ${wfe_ns} ns/op (expected <100)."
     echo "!! The hypervisor now appears to TRAP WFE. kernel/patches/0002 (polling idle) turns"
-    echo "!! every idle poll into a VM exit — REVERT IT and re-measure. See SCHED-PIPE-INVESTIGATION.md."
+    echo "!! every idle poll into a VM exit — REVERT IT and re-measure."
   fi
 else
   echo "note: no $B/wfeprobe — WFE canary skipped (build it: just build-wfeprobe)" >&2

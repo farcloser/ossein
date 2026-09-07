@@ -3,21 +3,14 @@
   extends: [
     "github>farcloser/limen#v0.1.1",
     "config:recommended",
-    // Default preset: detects owner/repo@ver and go-module packages in aqua.yaml,
-    // updates the standard-registry ref, and bumps aqua_version in CI/devcontainer too.
     "github>aquaproj/aqua-renovate-config#2.13.0",
   ],
   // Supply-chain cooldown: wait before proposing a bump. Doubles as protection
   // against the race where a release tag exists but its assets aren't uploaded yet.
   minimumReleaseAge: "3 days",
-  // Vulnerability-fix PRs from GitHub's Dependabot alerts (the baseline keeps
-  // the alerts on for exactly this; Dependabot's OWN update PRs are off —
-  // Renovate is the one dependency bot). Stated explicitly, not left to the
-  // preset default, because `enabled: true` here is what reaches `// indirect`
-  // Go modules: the gomod manager disables indirect deps, and the alert path
-  // re-enables a dep only when this object says enabled. Fix PRs skip the
-  // cooldown above (a known-vulnerable version is the worse risk) and take
-  // the lowest fixed version, both Renovate defaults for this object.
+  // Stated explicitly: `enabled: true` here is what re-enables `// indirect`
+  // Go modules for alert-driven fix PRs; the gomod manager disables them
+  // otherwise.
   vulnerabilityAlerts: {
     enabled: true,
   },

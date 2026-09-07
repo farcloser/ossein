@@ -1,19 +1,14 @@
-# The release shape is the twin of `just build` (root Justfile) and of the
-# shared `just do build go` release recipe (.limen/just/build-go.just): the same
-# guest artifacts embedded, the same CGO/VZ link, the same flags, the same
-# ad-hoc codesign with the VZ entitlement. A change to any of them lands in
-# all of them. Runs on macos-26 (.github/workflows/release.yaml): the vendored
-# vz needs the macOS 26 SDK, and only a macOS runner can link against
-# Virtualization.framework.
+# Twin of `just build` and `do build go`: same embedded artifacts, flags, and
+# ad-hoc codesign — a change to one lands in all three. macos-26 runner because
+# the vendored vz needs the macOS 26 SDK.
 version: 2
 project_name: ossein
 dist: build/release
 
 before:
   hooks:
-    # The verified guest kernel (cosign + pinned sha256) and the initfs built
-    # from this tree, placed where //go:embed expects them — what `just build`
-    # does first. The kernel is fetched only when missing.
+    # Does not refresh an existing pkg/guestartifacts/kernel-arm64 — a stale
+    # local kernel ships as-is.
     - just _guest-artifacts
 
 builds:
@@ -25,10 +20,8 @@ builds:
       - -trimpath
     buildmode: pie
     ldflags:
-      # main.version from the tag; main.buildkitImage from the Justfile's
-      # digest-pinned buildkit ref, exported as BUILD_GO_LDFLAGS by the root
-      # Justfile so the pin lives in one place (`just do release` runs
-      # goreleaser under that environment).
+      # BUILD_GO_LDFLAGS is exported by the root Justfile; run goreleaser
+      # through `just`, never bare, or the buildkit pin is empty.
       - -s -w -X main.version={{ .Version }} {{ .Env.BUILD_GO_LDFLAGS }}
     targets:
       - darwin_arm64

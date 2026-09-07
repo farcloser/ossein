@@ -71,9 +71,6 @@ KVER_SEEN=""   # accumulates "|kver|" to detect the same daemon behind two conte
 # bench name -> target path + args under /bench (word-split at call site).
 # fsbench-*-{rootfs,virtio} isolate virtio-fs perf: the virtio − rootfs delta on
 # stat (open latency) and read (bandwidth) is the runtime's virtio-fs overhead.
-# syscallbench was dropped: `perf bench syscall basic` (via `just bench-perf`) measures the
-# identical raw syscall entry/exit path, cross-runtime, so it lived in two places. What stays
-# here is what perf has no equivalent for: exec-from-mount, virtio-fs, and small-file writes.
 BENCHES="forkexec-rootfs forkexec-virtio fileio \
          fsbench-stat-rootfs fsbench-stat-virtio fsbench-read-rootfs fsbench-read-virtio"
 bench_target() {
@@ -113,7 +110,7 @@ run_med() {  # <full run command...> -> "<median> <unit>"
 row() { printf "  %-30s %10s %-3s\n" "$1" "$2" "$3"; }
 
 # Every target reports the kernel it actually ran: this suite compares guest kernels, so the
-# version is the primary variable and should never be inferred (bench-perf.sh does the same).
+# version is the primary variable and should never be inferred.
 kernel_of() { "$@" uname -r 2>/dev/null | tr -d '[:space:]'; }
 
 # --- fairness preflight: how many CPUs does each runtime actually expose? ---

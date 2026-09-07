@@ -12,12 +12,10 @@
 #
 # Variants are built with `go build -overlay`: the two relay files are copied
 # to a scratch dir, patched there, and mapped over the real paths at build
-# time. Every go invocation runs from the repo root through the ordinary aqua
-# shim under the repo's own policy — nothing is bypassed, and the working tree
-# is never modified. Per variant we rebuild the guest initfs (the agent's
-# bidiCopy) and the host bench binary (which links pkg/container's bidiPipe),
-# then run tools/vsockbench through the production ExposeUnix path. Needs VZ
-# (a plain terminal, not a sandbox) and the debian image (pulled on first use).
+# time. Per variant we rebuild the guest initfs (the agent's bidiCopy) and the
+# host bench binary (which links pkg/container's bidiPipe), then run
+# tools/vsockbench through the production ExposeUnix path. Needs VZ (a plain
+# terminal, not a sandbox) and the debian image (pulled on first use).
 #
 # usage: bench-vsock.sh [bytes] [streams] [runs] [sizes...]
 #   bytes   per stream per run (default 2 GiB)
