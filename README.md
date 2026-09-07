@@ -20,6 +20,50 @@ OSSEIN_KERNEL=/path/to/kernel-arm64 OSSEIN_INITFS=/path/to/initfs.ext4 ossein ru
 > the harness (verified kernel fetch + in-repo initfs build) and are not part
 > of the module zip.
 
+## Install
+
+Requirements: macOS 26 or newer on Apple silicon. ossein boots its guest through
+Virtualization.framework; there is no daemon, nothing to install system-wide.
+
+### From a release
+
+Every release ships `ossein_<version>_darwin_arm64.tar.gz`, a `checksums.txt`,
+and a Sigstore bundle signed keylessly by the release workflow itself — there is
+no signing key anywhere to leak. Verify before trusting:
+
+```sh
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp \
+    'https://github.com/farcloser/ossein/\.github/workflows/release\.yaml@refs/tags/v.*' \
+  checksums.txt
+shasum -a 256 --check --ignore-missing checksums.txt
+tar xzf ossein_*_darwin_arm64.tar.gz ossein
+```
+
+The binary is signed ad hoc with the Virtualization entitlement — there is no
+Apple developer account behind this project, so it carries no Developer ID and
+is not notarized. macOS therefore quarantines it as a download, and the first
+run is refused until you clear that bit yourself:
+
+```sh
+xattr -d com.apple.quarantine ossein
+./ossein version
+```
+
+Clearing quarantine on an unverified download would be switching off a
+protection blind; after the cosign step above it is an informed decision, which
+is why the verification comes first.
+
+### From source
+
+```sh
+just build        # fetches + verifies the pinned guest kernel, builds the initfs, embeds both, codesigns
+./build/ossein doctor
+```
+
+`just build` is the only sanctioned build (see the note under TL;DR).
+
 ## Motivation
 
 Running buildkitd on macOS is not new.
