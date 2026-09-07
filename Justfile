@@ -66,7 +66,10 @@ buildkit_ref := buildkit_repo + ":" + buildkit_tag + "@" + buildkit_digest
 # Lint the guest packages under their real GOOS. The root .golangci.yml applies.
 lint: _guest-artifacts do::lint::default do::lint::go::default do::lint::go::bce do::lint::go::escape do::lint::go::deadcode tools-lint
     {{ linux_env }} golangci-lint run {{ guest_pkgs }}
-    {{ linux_env }} govulncheck {{ guest_pkgs }}
+    # govulncheck is a go.mod tool now (limen ≥ 0.1.0); the shared vuln recipe
+    # this depends on has already built it natively into build/tools/, and that
+    # binary runs under the guest GOOS like the shared per-GOOS legs do.
+    {{ linux_env }} build/tools/govulncheck {{ guest_pkgs }}
 
 fix: do::fix::default do::fix::go::default
 test: _guest-artifacts do::test::go::default guest-check
