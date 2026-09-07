@@ -12,7 +12,8 @@ before:
     - just _guest-artifacts
 
 builds:
-  - main: ./cmd/ossein
+  - id: ossein
+    main: ./cmd/ossein
     binary: ossein
     env:
       - CGO_ENABLED=1
@@ -33,6 +34,23 @@ builds:
       # quarantined by Gatekeeper until the user clears it (README, Install).
       post:
         - codesign --force --sign - --timestamp=none --entitlements vz.entitlements {{ .Path }}
+
+  # The docker-shaped front (cmd/ossein-docker). Same flags and stamping; no
+  # entitlement, since it never touches Virtualization.framework itself — it
+  # execs its sibling `ossein`, which is why the two ship in ONE archive.
+  - id: ossein-docker
+    main: ./cmd/ossein-docker
+    binary: ossein-docker
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    buildmode: pie
+    ldflags:
+      - -s -w -X main.version={{ .Version }} {{ .Env.BUILD_GO_LDFLAGS }}
+    targets:
+      - darwin_arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - formats: ["tar.gz"]

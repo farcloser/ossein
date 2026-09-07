@@ -22,6 +22,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/mycophonic/primordium/filesystem/dirs"
 
+	"github.com/farcloser/ossein/internal/climain"
 	"github.com/farcloser/ossein/pkg/container"
 	"github.com/farcloser/ossein/pkg/guestartifacts"
 	"github.com/farcloser/ossein/pkg/image"
@@ -46,17 +47,13 @@ var (
 // (~/Library/Caches/<appName>/…). Matches the Go module for cache continuity.
 const appName = "ossein"
 
-// exitInternal is docker's runtime-error exit convention (125): an ossein
-// failure must be distinguishable from a workload that itself exited 1.
-const exitInternal = 125
-
 // CLI is the kong grammar. Kernel/Initfs are global (most subcommands need them).
 // Both are EMBEDDED in the binary (`just build` bundles the verified kernel + the
 // initfs) and extracted to cache on first use, so they default to the embedded
 // artifacts; a flag or the OSSEIN_KERNEL/OSSEIN_INITFS env var overrides with an
 // on-disk path (local dev, bench A/B).
 type CLI struct {
-	LogLevel string `default:"info"      enum:"debug,info,warn,error"                              env:"OSSEIN_LOG_LEVEL" help:"log verbosity" name:"log-level"`
+	LogLevel string `default:"info"      enum:"${log_levels}"                                      env:"OSSEIN_LOG_LEVEL" help:"log verbosity" name:"log-level"`
 	Kernel   string `env:"OSSEIN_KERNEL" help:"guest kernel path (default: the embedded kernel)"   name:"kernel"`
 	Initfs   string `env:"OSSEIN_INITFS" help:"vminitd initfs.cpio (default: the embedded initfs)" name:"initfs"`
 
@@ -81,10 +78,10 @@ func main() {
 		// Struct tags are compile-time literals, so a linker-stamped default has
 		// to arrive as a kong variable: `default:"${buildkit_image}"` on
 		// buildkitCmd.Image interpolates this.
-		kong.Vars{"buildkit_image": buildkitImage},
+		kong.Vars{"buildkit_image": buildkitImage, "log_levels": climain.LogLevels},
 	)
 
-	logger := newLogger(cli.LogLevel)
+	logger := climain.NewLogger(cli.LogLevel)
 
 	art := container.Artifacts{Kernel: cli.Kernel, Initfs: cli.Initfs}
 
@@ -100,7 +97,7 @@ func main() {
 		}
 
 		logger.Error("command failed", "err", err)
-		os.Exit(exitInternal)
+		os.Exit(climain.ExitInternal)
 	}
 }
 
