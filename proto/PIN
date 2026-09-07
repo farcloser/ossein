@@ -1,0 +1,21 @@
+# Provenance of proto/SandboxContext.proto: vendored VERBATIM from
+# apple/containerization at the ref below. Keep it byte-identical to upstream —
+# unused RPCs/messages included — so the ancestry stays auditable.
+#
+# There is exactly one copy of the proto and one generated tree
+# (internal/sandbox), imported by both the host client (pkg/guest) and the guest
+# server (guest/internal/guestagent), so no cross-copy sync check is needed: regenerate
+# with `just proto`.
+#
+# Ossein's OWN RPCs live in proto/Ossein.proto, a separate file and service
+# (OsseinGuest) generated into the same Go package. That split is what keeps this
+# pledge honest: anything ossein needs and upstream lacks goes there, so
+# SandboxContext.proto never has to be edited and its ancestry stays auditable.
+#
+# The initfs is NOT covered by this pin: ossein owns the guest (guest/vminitd) and
+# builds initfs.ext4 in-repo. Host↔guest compatibility is enforced at runtime by
+# the protocol-revision handshake, and every constant the two ends must agree on
+# (revision, its env var, the vsock port, the initfs init path) is declared ONCE
+# in internal/protocol and imported by both — so bumping the revision is one edit,
+# not two kept in step.
+apple/containerization 1d5641ff962456df021283505eaa6a701d828192

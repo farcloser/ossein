@@ -1,0 +1,22 @@
+//
+//  virtualization_15.h
+//
+//  Created by codehex.
+//
+
+#pragma once
+
+#import "internal/osversion/virtualization_helper.h"
+#import <Virtualization/Virtualization.h>
+
+/* exported from cgo */
+void usbAttachDetachCompletionHandler(uintptr_t cgoHandle, void *errPtr);
+
+/* macOS 15 API */
+bool isNestedVirtualizationSupported();
+void setNestedVirtualizationEnabled(void *config, bool nestedVirtualizationEnabled);
+void *newVZXHCIControllerConfiguration();
+const char *getUUIDUSBDevice(void *usbDevice);
+void *VZVirtualMachine_usbControllers(void *machine);
+void detachDeviceVZUSBController(void *usbController, void *usbDevice, void *queue, uintptr_t cgoHandle);
+void *newVZUSBMassStorageDeviceWithConfiguration(void *config);

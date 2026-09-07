@@ -1,0 +1,46 @@
+# Project workflow (the generic verify matrix lives in ci.yaml, a canonical
+# limen file this deliberately does not touch): exercise the full product
+# build on the one platform that can produce it — kernel fetch + cosign/sha
+# verification, guest initfs assembly, //go:embed bundling, CGO/VZ link, and
+# codesign with the vz entitlements. GitHub's macOS runners cannot run VZ VMs
+# (no nested virtualization), so booting (`ossein doctor`) stays a laptop
+# check; everything up to the runnable signed binary is validated here.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install aqua (pinned, checksum-verified)
+        uses: ./.github/actions/setup-aqua
+
+      - name: Install pinned tools
+        run: aqua install --only-link
+
+      - name: Build (kernel fetch + verify, initfs, embed, codesign)
+        run: just build
+
+      - name: Smoke-test the binary (no VM)
+        run: ./build/ossein version
