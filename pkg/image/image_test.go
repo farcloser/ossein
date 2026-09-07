@@ -159,7 +159,7 @@ func TestResolutionRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "res.json")
 	cfg := v1.Config{Entrypoint: []string{"/bin/sh"}, Env: []string{"FOO=bar"}}
 
-	storeResolution(path, "sha256:deadbeef", cfg)
+	storeResolution(path, resolution{Digest: "sha256:deadbeef", Config: cfg})
 
 	res, err := loadResolution(path)
 	if err != nil {
@@ -315,5 +315,79 @@ func TestResolveCacheKeyNormalization(t *testing.T) {
 
 	if _, err := resolveCacheFileName("UPPER not a ref!!", "linux/arm64"); !errors.Is(err, ErrResolve) {
 		t.Fatalf("invalid ref = %v, want ErrResolve", err)
+	}
+}
+
+func TestImportResolvesOfflineAndFlattens(t *testing.T) {
+	// Redirect $HOME: Import writes the resolve cache under dirs.CacheDir.
+	// t.Setenv forbids t.Parallel.
+	t.Setenv("HOME", t.TempDir())
+
+	cache, err := openCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = cache.Close() }()
+
+	source, err := random.Image(1024, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantDigest, err := source.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const ref = "example.com/built/locally:dev"
+
+	imported, err := Import(cache, ref, "", source)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	if imported.Digest != wantDigest.Hex {
+		t.Fatalf("Import digest = %s, want %s", imported.Digest, wantDigest.Hex)
+	}
+
+	// The imported image flattens straight from its in-memory source.
+	blob := readPin(t, mustRootfsFile(t, imported))
+	if len(blob) == 0 || len(blob)%512 != 0 {
+		t.Fatalf("imported rootfs is %d bytes", len(blob))
+	}
+
+	// After Import the tag resolves OFFLINE (never touches a registry) under
+	// both pull policies that consult the local record, and serves the same
+	// cached blob.
+	for _, pull := range []string{PullNever, PullMissing} {
+		resolved, err := Resolve(context.Background(), cache, ref, "", pull)
+		if err != nil {
+			t.Fatalf("Resolve(%s) after Import: %v", pull, err)
+		}
+
+		if resolved.Digest != wantDigest.Hex {
+			t.Fatalf("Resolve(%s) digest = %s, want %s", pull, resolved.Digest, wantDigest.Hex)
+		}
+
+		if again := readPin(t, mustRootfsFile(t, resolved)); !bytes.Equal(again, blob) {
+			t.Fatalf("Resolve(%s) serves a different rootfs than Import produced", pull)
+		}
+	}
+
+	// A resolved-from-record local image whose blob is gone cannot be re-fetched:
+	// the error must say "rebuild", not try a registry.
+	resolved, err := Resolve(context.Background(), cache, ref, "", PullMissing)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := resolved.resolveSource(); !errors.Is(err, ErrCache) || !strings.Contains(err.Error(), "rebuild") {
+		t.Fatalf("local image re-fetch = %v, want ErrCache asking for a rebuild", err)
+	}
+
+	// Import refuses an unparsable ref before touching anything.
+	if _, err := Import(cache, "UPPER not a ref!!", "", source); !errors.Is(err, ErrResolve) {
+		t.Fatalf("Import(bad ref) = %v, want ErrResolve", err)
 	}
 }

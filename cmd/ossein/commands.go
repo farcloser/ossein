@@ -45,6 +45,10 @@ const (
 	pidFileName = "pid"
 	pidFileMode = 0o600
 
+	// buildkitLogName is the backgrounded child's stdout/stderr capture
+	// (inside InstanceDir), the file every "see the log" message points at.
+	buildkitLogName = "buildkit.log"
+
 	// buildkitDataDir is where buildkitd keeps its content store, cache metadata,
 	// and snapshots; backing it with a per-project ext4 volume is what makes the
 	// cache survive the ephemeral VM. buildkitCacheSize is the sparse image size.
@@ -84,15 +88,17 @@ type runCmd struct {
 	// Rm is a no-op: every run owns a throwaway microVM that is always torn down
 	// on exit (see runCmd.Run's deferred Close). Accepted only so docker-shaped
 	// scripts that pass --rm don't fail on an unknown flag.
-	Rm         bool     `help:"no-op; the container is always removed on exit (docker compatibility)"                        name:"rm"`
-	Cwd        string   `help:"working directory inside the container"                                                       name:"workdir"                              short:"w"`
-	User       string   `help:"numeric uid[:gid]"`
-	Env        []string `help:"set environment variables: KEY=VALUE, or bare KEY to pass through from the host (repeatable)" short:"e"`
-	EnvFile    []string `help:"read environment variables from a file (docker --env-file, repeatable)"                       name:"env-file"`
+	Rm   bool   `help:"no-op; the container is always removed on exit (docker compatibility)" name:"rm"`
+	Cwd  string `help:"working directory inside the container"                                name:"workdir" short:"w"`
+	User string `help:"numeric uid[:gid]"`
+	// sep:"none": kong would otherwise split every value on commas, and
+	// `-e LIST=a,b` is an ordinary environment variable.
+	Env        []string `help:"set environment variables: KEY=VALUE, or bare KEY to pass through from the host (repeatable)" sep:"none"                                  short:"e"`
+	EnvFile    []string `help:"read environment variables from a file (docker --env-file, repeatable)"                       name:"env-file"                             sep:"none"`
 	Platform   string   `help:"linux/amd64 | linux/arm64 (default: host; amd64 runs via Rosetta)"`
 	Pull       string   `default:"missing"                                                                                   enum:"always,missing,never"                 help:"pull policy: always | missing | never (missing skips the registry when the image is already local)" name:"pull"`
 	ConsoleLog string   `help:"guest console log file"                                                                       name:"console-log"`
-	Volume     []string `help:"docker -v bind mount: host-dir:dest[:options] (repeatable)"                                   name:"volume"                               short:"v"`
+	Volume     []string `help:"docker -v bind mount: host-dir:dest[:options] (repeatable)"                                   name:"volume"                               sep:"none"                                                                                                short:"v"`
 	Image      string   `arg:""                                                                                              help:"image reference"`
 	Command    []string `arg:""                                                                                              help:"command + args (overrides image CMD)" optional:""                                                                                               passthrough:""`
 }
@@ -600,6 +606,21 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 		return nil
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// --detach is idempotent per cache: an instance already serving this
+	// project's cache is reused (its BUILDKIT_HOST printed again) rather than
+	// refused, so `eval "$(ossein buildkit --detach)"` twice — or the
+	// docker-shaped front issuing it before every build — never fails on its
+	// own previous success. Only for the default socket: a caller naming a
+	// --sock asked for THAT socket, not whichever one is up.
+	if c.Detach && c.Sock == "" {
+		if done, err := reuseInstance(ctx, logger, cacheDir); done || err != nil {
+			return err
+		}
+	}
+
 	// Fail fast with an actionable message if this project's cache is already
 	// held by a running instance — instead of dying deep inside a detached child
 	// with only a terse log line. (The child still enforces the lock; this is a
@@ -613,9 +634,6 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 			cacheDir,
 		)
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	// A user-supplied socket that something still answers on belongs to a
 	// previous instance (or an unrelated daemon): fail before booting a VM —
@@ -682,6 +700,19 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 		return err
 	}
 
+	// The socket path is fixed before Boot (the instance dir IS dir: Boot
+	// derives it from the same id) so the record below is complete from the
+	// start — a concurrent `--detach` for this cache then finds the instance
+	// and waits for the socket instead of hitting the lock.
+	hostSock, err := resolveSock(c.Sock, dir)
+	if err != nil {
+		return err
+	}
+
+	if err := writeBuildkitRecord(dir, buildkitRecord{Cache: cacheDir, Sock: hostSock}); err != nil {
+		return err
+	}
+
 	// Registered before inst.Close's defer below so LIFO runs Close first and
 	// the console log survives until teardown has finished.
 	defer func() {
@@ -720,11 +751,6 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	defer release()
 
 	if err := inst.StartProcess(ctx); err != nil {
-		return err
-	}
-
-	hostSock, err := resolveSock(c.Sock, inst.Dir)
-	if err != nil {
 		return err
 	}
 
@@ -877,7 +903,7 @@ func (c *buildkitCmd) detach(
 		return err
 	}
 
-	logPath := filepath.Join(dir, "buildkit.log")
+	logPath := filepath.Join(dir, buildkitLogName)
 
 	logFile, err := os.Create(logPath) // #nosec G304 -- logPath is a ossein-owned state-dir path
 	if err != nil {
