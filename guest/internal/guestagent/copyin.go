@@ -140,7 +140,7 @@ func (a *Agent) Copy(ctx context.Context, req *pb.CopyRequest, stream *connect.S
 // overlay lower, and the merged overlay lands at dest. Cost is two mounts —
 // ~100µs, flat in image size — against the 619 ms a rust-sized extraction
 // took, and the image no longer has to fit in guest RAM (see
-// docs/ROOTFS-MATERIALIZATION.md).
+// the rootfs-materialization notes, a local engineering journal).
 //
 // There is deliberately no fallback. ossein used to also ship a tar+lz4 codec
 // whose blobs the guest decoded and extracted into the tmpfs, kept as an

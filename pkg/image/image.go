@@ -98,7 +98,7 @@ const cacheLayoutVersion = "v1"
 // one shared classifier, internal/rootfsblob, which both this package's tests
 // and the guest run against the same bytes.
 //
-// What it bought (measured 2026-08-02, docs/ROOTFS-MATERIALIZATION.md): the
+// What it bought (measured 2026-08-02; rootfs-materialization notes, a local engineering journal): the
 // guest MOUNTS the blob read-only under a tmpfs-upper overlay instead of
 // extracting it — rust boot 857ms → ~200ms, materialization ~100µs flat in
 // image size, kernel-compile parity, image pages evictable, and the
@@ -109,7 +109,7 @@ const cacheLayoutVersion = "v1"
 // hatch it nominally provided — a guest kernel without CONFIG_EROFS_FS —
 // cannot occur: the kernel is embedded, pinned by tag and sha256,
 // cosign-verified, and config-asserted against a golden. The benchmark numbers
-// it served as a baseline for are recorded in docs/BENCHMARKS.md, and the code
+// it served as a baseline for are recorded in the benchmarks journal (local), and the code
 // is in git history.
 const rootfsCodec = "goerofs"
 
