@@ -26,7 +26,7 @@ packages:
   - name: github.com/farcloser/godolint/cmd/godolint@v0.1.0
     registry: local
   # --- farcloser tools (local registry; standard once registered upstream) ---
-  - name: farcloser/limen@v0.1.0 # renovate: depName=farcloser/limen
+  - name: farcloser/limen@v0.1.1 # renovate: depName=farcloser/limen
     registry: local
   # --- toolchain + binary-release tools (standard registry, aqua-verified) ---
   - name: golang/go@go1.27.0
@@ -42,3 +42,5 @@ packages:
   - name: cli/cli@v2.96.0
   - name: protocolbuffers/protobuf/protoc@v35.1
   - name: protocolbuffers/protobuf-go/protoc-gen-go@v1.36.11
+  - name: uutils/coreutils@0.11.0
+    registry: local
