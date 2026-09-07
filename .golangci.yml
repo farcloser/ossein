@@ -309,6 +309,12 @@ linters:
             # Containers
             - github.com/google/go-containerregistry
             - github.com/opencontainers/runtime-spec
+            # Build: cmd/ossein-docker speaks to buildkitd through the client
+            # library; fsutil is its local-mount type; grpc only to register
+            # the credentials service on the build session (cmd/ossein-docker/auth.go)
+            - github.com/moby/buildkit
+            - github.com/tonistiigi/fsutil
+            - google.golang.org/grpc
             # EROFS rootfs images: farcloser fork of erofs/go-erofs carrying
             # Writer.Link (shared-inode hardlinks) — see pkg/image/goerofs.go
             - github.com/forkcloser/erofs

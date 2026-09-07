@@ -98,15 +98,37 @@ Ossein was built to bridge that gap:
 
 ## Usage(s)
 
-The best and intended way to run ossein is through aqua.
+The best and intended way to run ossein is through aqua, on a project's
+hermetic PATH. Flags are docker-shaped:
 
 ```
-cd myproject
-aqua add ...
+ossein pull debian@sha256:…                            # resolve + flatten into the local cache
+ossein run --rm -v "$PWD:/w" -w /w debian@sha256:… sh -c 'make'
+ossein run --rm --platform linux/amd64 debian@sha256:… uname -m   # amd64 via Rosetta
+eval "$(ossein buildkit --detach)"                     # per-project buildkitd; prints BUILDKIT_HOST
+ossein stop                                            # stop background instance(s)
+```
 
-ossein build 
+### `docker`, for scripts that expect one
+
+`ossein-docker` is a docker-shaped front for the handful of `docker` invocations
+build scripts actually make — `build`, `run`, `pull`, `stop`, `version` — with the
+flags they actually pass, and nothing else: an unknown flag or subcommand is
+refused, never silently dropped. Installed as `docker` on a hermetic PATH, a
+script written against docker or podman runs unchanged on a mac with no daemon.
 
 ```
+docker build -t app:dev --build-arg V=1 -f ci/Dockerfile .
+docker run --rm -v "$PWD:/w" -w /w app:dev make        # the tag resolves locally, offline
+```
+
+`run`, `pull` and `stop` exec the `ossein` next to the binary. `build` talks to
+buildkitd through the buildkit client library: it starts this directory's
+buildkit microVM (`ossein buildkit --detach`, reused if already up), solves the
+Dockerfile with the context and Dockerfile as local mounts, and records every
+`-t` tag in ossein's image cache — flattened and ready, so the `run` that follows
+boots warm. Registry credentials come from docker's own store (`docker login`).
+`--push` and `--output` are not part of it: the image cache is the destination.
 
 ## Persistent build cache (per project)
 

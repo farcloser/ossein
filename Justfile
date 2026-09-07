@@ -7,6 +7,13 @@ import '.limen/just/main.just'
 # binary is darwin/arm64-only.
 export GO_CGO := '1'
 
+# go-licenses cannot locate the license of these two Apache-2.0 modules (the
+# buildkit client's provenance types): in-toto/attestation's Go module lives in
+# a subdirectory below the repository's LICENSE, and in-toto-golang trips the
+# same module-layout detection (google/go-licenses#186). Both licenses were
+# read from the module cache when this was added; re-check on a major bump.
+export LINT_GO_LICENSES_FLAGS := '--ignore=github.com/in-toto/attestation --ignore=github.com/in-toto/in-toto-golang'
+
 # ossein-kernel release embedded into the ossein binary (pkg/guestartifacts);
 # non-semver, distro-kernel style tag. The pinned kernel MUST be built with
 # CONFIG_BLK_DEV_INITRD=y: the guest boots a cpio via rdinit= with no root
@@ -132,8 +139,10 @@ tools-lint:
 # -ldflags smuggled through BUILD_GO_FLAGS would have done).
 export BUILD_GO_LDFLAGS := '-X main.buildkitImage=' + buildkit_ref
 
-# cmd/ holds only the ossein product — guest/ and tools/ are deliberately outside
-# it so `do build go` builds exactly one binary.
+# cmd/ holds only the ossein product — the runtime and its docker-shaped front,
+# cmd/ossein-docker — guest/ and tools/ are deliberately outside it so `do build go`
+# builds exactly those two. Only ossein is entitled below: the front execs it
+# rather than touching Virtualization itself.
 #
 # The binary is finished under a scratch name and swapped in with ONE rename.
 # Never touch build/ossein in place: macOS SIGKILLs a running process whose
@@ -146,7 +155,7 @@ build: fetch-kernel _embed-initfs
     set -euo pipefail
     # Unlink first: a running instance keeps the old inode alive, and go then
     # creates a fresh file instead of copying into the live one.
-    rm -f build/ossein build/ossein.new
+    rm -f build/ossein build/ossein.new build/ossein-docker
     just do build go
     # Sign a copy and swap it in: codesign rewrites in place, and the fresh
     # (still unsigned) file may already have been exec'd by someone.
