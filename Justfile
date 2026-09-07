@@ -235,10 +235,14 @@ fetch-kernel:
     cosign verify-blob --bundle "$tmp/SHA256SUMS.cosign.bundle" \
         --certificate-identity-regexp "{{ guest_kernel_identity }}" \
         --certificate-oidc-issuer "{{ guest_kernel_issuer }}" "$tmp/SHA256SUMS"
-    ( cd "$tmp" && grep ' kernel-arm64$' SHA256SUMS | shasum -a 256 -c - )
+    # No single digest tool exists everywhere: linux and windows git-bash ship
+    # coreutils sha256sum, macOS ships perl shasum (as the canonical setup-aqua
+    # action does it).
+    if command -v sha256sum >/dev/null 2>&1; then sha256() { sha256sum "$@"; }; else sha256() { shasum -a 256 "$@"; }; fi
+    ( cd "$tmp" && grep ' kernel-arm64$' SHA256SUMS | sha256 -c - )
     # The in-repo digest pin: cosign proves WHO signed, this proves WHICH bytes —
     # a re-published tag or re-signed asset cannot slip through.
-    actual=$(shasum -a 256 "$tmp/kernel-arm64" | cut -d' ' -f1)
+    actual=$(sha256 "$tmp/kernel-arm64" | cut -d' ' -f1)
     if [ "$actual" != "{{ guest_kernel_sha256 }}" ]; then
         echo "kernel digest mismatch: pinned {{ guest_kernel_sha256 }}, got $actual" >&2
         echo "(bumping the kernel? update guest_kernel_sha256 in the Justfile)" >&2
