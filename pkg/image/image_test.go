@@ -14,7 +14,10 @@ import (
 
 	goerofs "github.com/forkcloser/erofs"
 	"github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/types"
 	blobcache "github.com/mycophonic/primordium/store/cache"
 
 	"github.com/farcloser/ossein/internal/rootfsblob"
@@ -159,7 +162,7 @@ func TestResolutionRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "res.json")
 	cfg := v1.Config{Entrypoint: []string{"/bin/sh"}, Env: []string{"FOO=bar"}}
 
-	storeResolution(path, "sha256:deadbeef", cfg)
+	storeResolution(path, resolution{Digest: "sha256:deadbeef", Config: cfg})
 
 	res, err := loadResolution(path)
 	if err != nil {
@@ -214,6 +217,196 @@ func TestResolvePullNeverUncachedFails(t *testing.T) {
 	_, err = Resolve(context.Background(), cache, "example.com/never/cached:latest", "", PullNever)
 	if !errors.Is(err, ErrResolve) {
 		t.Fatalf("Resolve(PullNever, uncached) = %v, want ErrResolve", err)
+	}
+}
+
+// pinnedFixture is a random image, an index that lists it for the host
+// platform, and the chained record online() would have written for it.
+type pinnedFixture struct {
+	img       v1.Image
+	imgDigest string
+	idxDigest string
+	record    resolution
+}
+
+func newPinnedFixture(t *testing.T) pinnedFixture {
+	t.Helper()
+
+	img, err := random.Image(512, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Listed for the platform the tests resolve — the host's, whichever
+	// runner this is — since that is what the index must vouch for.
+	host := hostPlatform()
+
+	idx := mutate.AppendManifests(empty.Index, mutate.IndexAddendum{
+		Add: img,
+		Descriptor: v1.Descriptor{
+			MediaType: types.OCIManifestSchema1,
+			Platform:  &host,
+		},
+	})
+
+	rawIndex, err := idx.RawManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rawManifest, err := img.RawManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rawConfig, err := img.RawConfigFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := img.ConfigFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	imgDigest, _ := img.Digest()
+	idxDigest, _ := idx.Digest()
+
+	return pinnedFixture{
+		img: img, imgDigest: imgDigest.String(), idxDigest: idxDigest.String(),
+		record: resolution{
+			Digest: imgDigest.String(), Config: cfg.Config,
+			Index: rawIndex, Manifest: rawManifest, ConfigBlob: rawConfig,
+		},
+	}
+}
+
+// writeRecord stores rec as the resolution for ref on the host platform.
+func writeRecord(t *testing.T, ref string, rec resolution) {
+	t.Helper()
+
+	path, err := resolveCacheFile(ref, hostPlatform().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	storeResolution(path, rec)
+}
+
+func TestResolvePinnedRefVerifiesTheChain(t *testing.T) {
+	// Records live under dirs.CacheDir: redirect $HOME. t.Setenv forbids t.Parallel.
+	t.Setenv("HOME", t.TempDir())
+
+	cache, err := openCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = cache.Close() }()
+
+	fixture := newPinnedFixture(t)
+
+	// Pinned to the index: verified through Index → Manifest → ConfigBlob.
+	viaIndex := "example.com/pinned@" + fixture.idxDigest
+	writeRecord(t, viaIndex, fixture.record)
+
+	for _, pull := range []string{PullNever, PullMissing} {
+		got, err := Resolve(context.Background(), cache, viaIndex, "", pull)
+		if err != nil {
+			t.Fatalf("Resolve(%s, pinned to index) = %v", pull, err)
+		}
+
+		if "sha256:"+got.Digest != fixture.imgDigest {
+			t.Fatalf("Resolve(%s) digest = %s, want %s", pull, got.Digest, fixture.imgDigest)
+		}
+	}
+
+	// Pinned to the manifest itself: no Index in the chain.
+	direct := "example.com/pinned@" + fixture.imgDigest
+	rec := fixture.record
+	rec.Index = nil
+	writeRecord(t, direct, rec)
+
+	if _, err := Resolve(context.Background(), cache, direct, "", PullNever); err != nil {
+		t.Fatalf("Resolve(pinned to manifest) = %v", err)
+	}
+}
+
+func TestResolvePinnedRefRefusesAnAlteredRecord(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cache, err := openCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = cache.Close() }()
+
+	fixture := newPinnedFixture(t)
+	other := newPinnedFixture(t)
+	ref := "example.com/pinned@" + fixture.idxDigest
+
+	for name, alter := range map[string]func(*resolution){
+		// The digest field points elsewhere while the bytes still hash: caught
+		// by Digest ≠ sha256(Manifest).
+		"digest swapped": func(r *resolution) { r.Digest = other.imgDigest },
+		// Whole chain swapped for another image's: sha256(Index) ≠ the ref.
+		"index swapped": func(r *resolution) {
+			r.Index, r.Manifest, r.ConfigBlob, r.Digest = other.record.Index, other.record.Manifest, other.record.ConfigBlob, other.imgDigest
+		},
+		// Manifest from another image under the right index: the index does not list it.
+		"manifest swapped": func(r *resolution) { r.Manifest, r.Digest = other.record.Manifest, other.imgDigest },
+		// The config (entrypoint, env, user — what the container runs with)
+		// replaced: the manifest's config digest no longer matches.
+		"config swapped": func(r *resolution) { r.ConfigBlob = other.record.ConfigBlob },
+		"config edited": func(r *resolution) {
+			r.ConfigBlob = append([]byte(`{"config":{"Entrypoint":["/evil"]},"x":`), r.ConfigBlob[1:]...)
+		},
+	} {
+		rec := fixture.record
+		alter(&rec)
+		writeRecord(t, ref, rec)
+
+		for _, pull := range []string{PullNever, PullMissing} {
+			if _, err := Resolve(context.Background(), cache, ref, "", pull); !errors.Is(err, ErrResolve) {
+				t.Errorf("%s, Resolve(%s) = %v, want ErrResolve", name, pull, err)
+			}
+		}
+	}
+}
+
+func TestResolvePinnedRefWithoutChainNeedsARePull(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cache, err := openCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = cache.Close() }()
+
+	fixture := newPinnedFixture(t)
+
+	// A record from before the chain was kept: digest and config only.
+	legacy := resolution{Digest: fixture.imgDigest, Config: fixture.record.Config}
+
+	// Pinned ref: never refuses and says how to fix it (missing would go to
+	// the registry, which a unit test cannot).
+	pinned := "example.com/pinned@" + fixture.idxDigest
+	writeRecord(t, pinned, legacy)
+
+	_, err = Resolve(context.Background(), cache, pinned, "", PullNever)
+	if !errors.Is(err, ErrResolve) || !strings.Contains(err.Error(), "--pull=always") {
+		t.Fatalf("Resolve(never, unchained pinned record) = %v, want ErrResolve naming --pull=always", err)
+	}
+
+	// A tag is not pinned to anything: the same legacy record still serves it.
+	tag := "example.com/pinned:dev"
+	writeRecord(t, tag, legacy)
+
+	got, err := Resolve(context.Background(), cache, tag, "", PullNever)
+	if err != nil || "sha256:"+got.Digest != fixture.imgDigest {
+		t.Fatalf("Resolve(never, tag with legacy record) = (%v, %v)", got, err)
 	}
 }
 
