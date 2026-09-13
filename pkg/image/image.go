@@ -19,6 +19,7 @@
 package image
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -238,15 +239,9 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 		return nil, fmt.Errorf("%w: parse ref %q: %w", ErrResolve, ref, err)
 	}
 
-	platform := hostPlatform()
-
-	if platformStr != "" {
-		p, err := v1.ParsePlatform(platformStr)
-		if err != nil {
-			return nil, fmt.Errorf("%w: parse platform %q: %w", ErrResolve, platformStr, err)
-		}
-
-		platform = *p
+	platform, err := requestedPlatform(platformStr)
+	if err != nil {
+		return nil, err
 	}
 
 	platKey := platform.String()
@@ -255,28 +250,28 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 	// lazy re-fetch via resolveSource stays cancellable too). Auth from Docker's
 	// credential store (a `docker login` lifts the anonymous rate limit; falls
 	// back to anonymous, so always safe to pass).
-	remoteImage := func() (v1.Image, error) {
+	remoteImage := func() (v1.Image, *remote.Descriptor, error) {
 		desc, err := remote.Get(parsed,
 			remote.WithContext(ctx),
 			remote.WithPlatform(platform),
 			remote.WithAuthFromKeychain(authn.DefaultKeychain),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("%w: resolve %s: %w", ErrResolve, ref, err)
+			return nil, nil, fmt.Errorf("%w: resolve %s: %w", ErrResolve, ref, err)
 		}
 
 		img, err := desc.Image()
 		if err != nil {
-			return nil, fmt.Errorf("%w: image for %s (platform %s): %w", ErrResolve, ref, platKey, err)
+			return nil, nil, fmt.Errorf("%w: image for %s (platform %s): %w", ErrResolve, ref, platKey, err)
 		}
 
-		return img, nil
+		return img, desc, nil
 	}
 
 	// online resolves via the registry now, records the resolution, and returns a
 	// fully-bound Image (source set → flatten needs no further network).
 	online := func() (*Image, error) {
-		img, err := remoteImage()
+		img, desc, err := remoteImage()
 		if err != nil {
 			return nil, err
 		}
@@ -292,9 +287,13 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 		}
 
 		// Record ref@platform → digest+config so a later missing/never run is
-		// offline. Best-effort: a cache-write failure must not fail the run.
-		if cachePath, cacheErr := resolveCacheFile(ref, platKey); cacheErr == nil {
-			storeResolution(cachePath, dgst.String(), cfg.Config)
+		// offline, with the manifest chain a digest-pinned ref is verified
+		// against (see verifyPinnedRecord). Best-effort: a cache-write failure
+		// must not fail the run.
+		if rec, recErr := chainedResolution(desc, img, dgst.String(), cfg.Config); recErr == nil {
+			if cachePath, cacheErr := resolveCacheFile(ref, platKey); cacheErr == nil {
+				storeResolution(cachePath, rec)
+			}
 		}
 
 		return &Image{
@@ -324,6 +323,17 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 		}
 
 		return online() // missing: never seen — resolve now
+	}
+
+	// A digest-pinned ref names its content itself; the record is only
+	// allowed to agree, and it proves that with bytes, not fields.
+	res, reResolve, err := trustedRecord(parsed, platform, pull, res)
+	if err != nil {
+		return nil, err
+	}
+
+	if reResolve {
+		return online()
 	}
 
 	hash, err := v1.NewHash(res.Digest)
@@ -385,6 +395,203 @@ func pinnedFetcher(ctx context.Context, ref string, pinned name.Digest) func() (
 type resolution struct {
 	Digest string    `json:"digest"` // full digest string, e.g. "sha256:…"
 	Config v1.Config `json:"config"`
+
+	// The chain from the ref to what runs, kept as the raw bytes so a
+	// digest-pinned ref can be checked offline without trusting the two
+	// fields above: Index is what the ref's digest names when that is a
+	// multi-platform index (empty when the ref names an image manifest
+	// directly), Manifest is the platform image manifest (Digest is its
+	// sha256), ConfigBlob is the blob Manifest's config descriptor names
+	// (Config is parsed from it). Absent on records written before the chain
+	// was kept; such a record still serves a tag, never a pinned ref.
+	Index      []byte `json:"index,omitempty"`
+	Manifest   []byte `json:"manifest,omitempty"`
+	ConfigBlob []byte `json:"configBlob,omitempty"`
+}
+
+// requestedPlatform parses platformStr ("" → the host).
+func requestedPlatform(platformStr string) (v1.Platform, error) {
+	if platformStr == "" {
+		return hostPlatform(), nil
+	}
+
+	parsed, err := v1.ParsePlatform(platformStr)
+	if err != nil {
+		return v1.Platform{}, fmt.Errorf("%w: parse platform %q: %w", ErrResolve, platformStr, err)
+	}
+
+	return *parsed, nil
+}
+
+// trustedRecord is the record Resolve may build an Image from. A tag's
+// record is taken as is (a tag can name anything). A digest-pinned ref's
+// record must prove itself against the ref (verifyPinnedRecord): a record
+// that cannot — older than the chain — means resolve once more under
+// missing (reResolve) and a refusal under never; a record whose bytes do
+// not add up was edited, and is refused under either.
+func trustedRecord(
+	parsed name.Reference,
+	platform v1.Platform,
+	pull string,
+	res *resolution,
+) (rec *resolution, reResolve bool, err error) {
+	pinned, ok := parsed.(name.Digest)
+	if !ok {
+		return res, false, nil
+	}
+
+	verified, err := verifyPinnedRecord(pinned, platform, res)
+
+	switch {
+	case err == nil:
+		return verified, false, nil
+	case errors.Is(err, errRecordUnchained) && pull == PullMissing:
+		return nil, true, nil
+	case errors.Is(err, errRecordUnchained):
+		return nil, false, fmt.Errorf("%w: %q was resolved before ossein kept the manifest chain; "+
+			"re-pull once with --pull=always", ErrResolve, parsed)
+	default:
+		return nil, false, err
+	}
+}
+
+// errRecordUnchained marks a record without the manifest chain: written by an
+// ossein that did not keep it. Not an ErrResolve itself — the caller decides
+// whether that is a re-resolve (missing) or a refusal (never).
+var errRecordUnchained = errors.New("resolution record carries no manifest chain")
+
+// errIndexMissingManifest: the cached index does not list the cached manifest
+// for the platform — the record was altered.
+var errIndexMissingManifest = errors.New(
+	"index does not list the manifest for the platform; the record was altered, re-pull with --pull=always",
+)
+
+// chainedResolution builds the record for what desc (the bytes the ref
+// named) and img (the platform image chosen from it) resolved to.
+func chainedResolution(desc *remote.Descriptor, img v1.Image, dgst string, cfg v1.Config) (resolution, error) {
+	manifest, err := img.RawManifest()
+	if err != nil {
+		return resolution{}, fmt.Errorf("raw manifest: %w", err)
+	}
+
+	configBlob, err := img.RawConfigFile()
+	if err != nil {
+		return resolution{}, fmt.Errorf("raw config: %w", err)
+	}
+
+	rec := resolution{Digest: dgst, Config: cfg, Manifest: manifest, ConfigBlob: configBlob}
+
+	if desc.MediaType.IsIndex() {
+		rec.Index = desc.Manifest
+	}
+
+	return rec, nil
+}
+
+// bytesDigest is the "sha256:…" digest of raw bytes.
+func bytesDigest(raw []byte) string {
+	sum := sha256.Sum256(raw)
+
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// verifyPinnedRecord checks a record against the digest a pinned ref names
+// and returns the record with Digest and Config re-derived from the verified
+// bytes. The chain: pinned == sha256(Index) and Index lists sha256(Manifest)
+// for platform — or, with no Index, pinned == sha256(Manifest); then
+// Manifest's config descriptor == sha256(ConfigBlob). A record without the
+// bytes is errRecordUnchained; a record whose bytes do not add up is
+// ErrResolve — someone edited it, and following it would run a rootfs the
+// ref never named.
+func verifyPinnedRecord(pinned name.Digest, platform v1.Platform, res *resolution) (*resolution, error) {
+	if len(res.Manifest) == 0 || len(res.ConfigBlob) == 0 {
+		return nil, errRecordUnchained
+	}
+
+	want := pinned.DigestStr()
+	manifestDigest := bytesDigest(res.Manifest)
+
+	switch {
+	case len(res.Index) > 0:
+		if got := bytesDigest(res.Index); got != want {
+			return nil, fmt.Errorf(
+				"%w: cached index for %s hashes to %s; the record was altered, re-pull with --pull=always",
+				ErrResolve,
+				pinned,
+				got,
+			)
+		}
+
+		if err := indexLists(res.Index, manifestDigest, platform); err != nil {
+			return nil, fmt.Errorf("%w: cached index for %s: %w", ErrResolve, pinned, err)
+		}
+	case manifestDigest != want:
+		return nil, fmt.Errorf(
+			"%w: cached manifest for %s hashes to %s; the record was altered, re-pull with --pull=always",
+			ErrResolve,
+			pinned,
+			manifestDigest,
+		)
+	default:
+		// No index and the manifest hashes to the ref: the direct chain holds.
+	}
+
+	if res.Digest != manifestDigest {
+		return nil, fmt.Errorf(
+			"%w: record for %s names %s but its manifest is %s; the record was altered, re-pull with --pull=always",
+			ErrResolve,
+			pinned,
+			res.Digest,
+			manifestDigest,
+		)
+	}
+
+	manifest, err := v1.ParseManifest(bytes.NewReader(res.Manifest))
+	if err != nil {
+		return nil, fmt.Errorf("%w: cached manifest for %s: %w", ErrResolve, pinned, err)
+	}
+
+	if got := bytesDigest(res.ConfigBlob); manifest.Config.Digest.String() != got {
+		return nil, fmt.Errorf(
+			"%w: cached config for %s hashes to %s, manifest names %s; the record was altered, re-pull with --pull=always",
+			ErrResolve,
+			pinned,
+			got,
+			manifest.Config.Digest,
+		)
+	}
+
+	cfg, err := v1.ParseConfigFile(bytes.NewReader(res.ConfigBlob))
+	if err != nil {
+		return nil, fmt.Errorf("%w: cached config for %s: %w", ErrResolve, pinned, err)
+	}
+
+	return &resolution{
+		Digest: manifestDigest, Config: cfg.Config,
+		Index: res.Index, Manifest: res.Manifest, ConfigBlob: res.ConfigBlob,
+	}, nil
+}
+
+// indexLists reports whether raw (an index) names manifestDigest for
+// platform: the same OS and architecture, or an entry with no platform.
+func indexLists(raw []byte, manifestDigest string, platform v1.Platform) error {
+	idx, err := v1.ParseIndexManifest(bytes.NewReader(raw))
+	if err != nil {
+		return fmt.Errorf("parsing: %w", err)
+	}
+
+	for _, entry := range idx.Manifests {
+		if entry.Digest.String() != manifestDigest {
+			continue
+		}
+
+		if entry.Platform == nil ||
+			(entry.Platform.OS == platform.OS && entry.Platform.Architecture == platform.Architecture) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w (%s for %s/%s)", errIndexMissingManifest, manifestDigest, platform.OS, platform.Architecture)
 }
 
 // resolveCacheFile is the on-disk path for a ref@platform resolution — a sibling
@@ -441,12 +648,12 @@ func loadResolution(path string) (*resolution, error) {
 
 // storeResolution records a resolution at path. Best-effort: failures are
 // swallowed — a warm-run optimization must never fail a run.
-func storeResolution(path, dgst string, cfg v1.Config) {
+func storeResolution(path string, res resolution) {
 	if err := os.MkdirAll(filepath.Dir(path), cacheDirPerm); err != nil {
 		return
 	}
 
-	encoded, err := json.Marshal(resolution{Digest: dgst, Config: cfg})
+	encoded, err := json.Marshal(res)
 	if err != nil {
 		return
 	}
