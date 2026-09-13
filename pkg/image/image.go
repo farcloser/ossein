@@ -37,6 +37,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/mycophonic/primordium/digest"
 	"github.com/mycophonic/primordium/fault"
+	"github.com/mycophonic/primordium/filesystem"
 	"github.com/mycophonic/primordium/filesystem/dirs"
 	"github.com/mycophonic/primordium/store/cache"
 	"github.com/mycophonic/primordium/store/content"
@@ -450,10 +451,10 @@ func storeResolution(path, dgst string, cfg v1.Config) {
 		return
 	}
 
-	tmp := path + ".tmp"
-	if os.WriteFile(tmp, encoded, cacheFilePerm) == nil {
-		_ = os.Rename(tmp, path)
-	}
+	// Unique temp, fsync, rename: a crash never leaves a torn record under
+	// the real name, and two runs of the same ref cannot rename each other's
+	// half-written temp.
+	_ = filesystem.WriteFile(path, encoded, cacheFilePerm)
 }
 
 // RootfsFile returns the flattened rootfs blob as a complete, immutable,
