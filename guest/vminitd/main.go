@@ -259,7 +259,7 @@ func (l hostOnlyListener) Accept() (net.Conn, error) {
 // mountBaseFilesystems mounts the pseudo-filesystems the agent needs, mirroring
 // Apple's vminitd: proc, a tmpfs on /run (the root is read-only ext4, so /run
 // must be writable for container state), sysfs, then cgroup2. The mountpoint
-// directories come baked into the initfs (see tools/build-initfs); mounting onto them
+// directories come baked into the initfs (see hack/build-initfs); mounting onto them
 // does not write the read-only root.
 func mountBaseFilesystems() error {
 	const nodev = unix.MS_NOSUID | unix.MS_NODEV | unix.MS_NOEXEC

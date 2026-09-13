@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # COLD cross-runtime BUILD bench — measures each runtime's IMAGE-BUILD path (build
 # engine / buildkit) on the SAME kernel-compile workload as the run bench, so you
-# can compare build-vs-run per runtime. Dockerfile: tools/bench-kernel/Dockerfile.
+# can compare build-vs-run per runtime. Dockerfile: hack/bench-kernel/Dockerfile.
 #
 # COLD every iteration: before each build we wipe the base image + build cache, and
 # build with --no-cache — so apt + kernel download + compile all re-run, no cache
@@ -27,7 +27,7 @@ RUNS="${2:-5}"
 CPUS=4                                          # pin ossein's buildkit VM to match the run bench
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-CTX="$HERE/tools/bench-kernel"                  # build context (the Dockerfile dir)
+CTX="$HERE/hack/bench-kernel"                  # build context (the Dockerfile dir)
 BASE='debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171' # FROM in the Dockerfile (wiped for cold pull)
 TAG='ossein-benchbuild'
 

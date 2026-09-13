@@ -16,7 +16,7 @@ const (
 	// testImageSize keeps the (sparse) test images small enough to format fast.
 	// It must exceed 128 MiB: go-diskfs force-enables the ext4 resize inode and
 	// refuses any single-block-group image (≤128 MiB at 4 KiB blocks) with "no
-	// backup groups available" (see tools/build-initfs for the long story).
+	// backup groups available" (see hack/build-initfs for the long story).
 	testImageSize = 192 * 1024 * 1024 // 192 MiB
 
 	// ext4MagicOffset / ext4Magic mirror the superblock constants under test:

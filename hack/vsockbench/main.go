@@ -6,7 +6,7 @@
 //	host unix socket → bidiPipe (pkg/container) → vz vsock →
 //	guest agent bidiCopy (vsock ⇄ unix) → the container's unix socket
 //
-// It boots a container running tools/vsockpeer (bind-mounted in from build/),
+// It boots a container running hack/vsockpeer (bind-mounted in from build/),
 // exposes the peer's socket with Instance.ExposeUnix exactly as the buildkit
 // command does, then pushes (host→guest) and pulls (guest→host) N bytes over
 // one or more concurrent connections and reports MiB/s.
