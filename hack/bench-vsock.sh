@@ -14,7 +14,7 @@
 # to a scratch dir, patched there, and mapped over the real paths at build
 # time. Per variant we rebuild the guest initfs (the agent's bidiCopy) and the
 # host bench binary (which links pkg/container's bidiPipe), then run
-# tools/vsockbench through the production ExposeUnix path. Needs VZ (a plain
+# hack/vsockbench through the production ExposeUnix path. Needs VZ (a plain
 # terminal, not a sandbox) and the debian image (pulled on first use).
 #
 # usage: bench-vsock.sh [bytes] [streams] [runs] [sizes...]
@@ -55,9 +55,9 @@ build_variant() {
 
     "${LINUX_ENV[@]}" go build "${ov[@]}" -trimpath -ldflags "-s -w" \
         -o "build/vminitd-$label" ./guest/vminitd
-    go build -o build/build-initfs ./tools/build-initfs
+    go build -o build/build-initfs ./hack/build-initfs
     build/build-initfs -in "build/vminitd-$label" -out "build/initfs-$label.cpio"
-    CGO_ENABLED=1 go build "${ov[@]}" -o "build/vsockbench-$label" ./tools/vsockbench 2>&1 \
+    CGO_ENABLED=1 go build "${ov[@]}" -o "build/vsockbench-$label" ./hack/vsockbench 2>&1 \
         | grep -v 'duplicate libraries' || true
     codesign --force --sign - --timestamp=none --entitlements vz.entitlements \
         "build/vsockbench-$label" 2>/dev/null
@@ -101,7 +101,7 @@ run_variant() {
 }
 
 [ -f pkg/guestartifacts/kernel-arm64 ] || just fetch-kernel
-"${LINUX_ENV[@]}" go build -trimpath -ldflags "-s -w" -o build/vsockpeer ./tools/vsockpeer
+"${LINUX_ENV[@]}" go build -trimpath -ldflags "-s -w" -o build/vsockpeer ./hack/vsockpeer
 
 echo ">> building stock"
 build_variant stock

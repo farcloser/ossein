@@ -180,7 +180,7 @@ linters:
         text: "add-constant|cognitive-complexity|confusing-results|nested-structs|use-waitgroup-go|unchecked-type-assertion|unhandled-error|unused-receiver"
         linters:
           - revive
-      # tools/bench is a measurement harness — closest in spirit to test code, so
+      # hack/bench is a measurement harness — closest in spirit to test code, so
       # it gets the same treatment as _test.go above. Inline tuning constants,
       # fatal() helpers that exit, and file/exec calls on computed paths are the
       # POINT of a benchmark, not defects; contorting them to satisfy house style
@@ -188,10 +188,10 @@ linters:
       # govet, staticcheck, ineffassign, unused — which is the whole reason the
       # tools-lint leg exists: these files carry a linux build tag, so the native
       # legs never see them and nothing else would catch a real break.
-      - path: ^tools/bench/
+      - path: ^hack/bench/
         linters:
           - err113
-      - path: ^tools/bench/
+      - path: ^hack/bench/
         text: "add-constant|cognitive-complexity"
         linters:
           - revive

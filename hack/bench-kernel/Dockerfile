@@ -1,5 +1,5 @@
-# Heavy from-source build for the cross-runtime BUILD bench (tools/bench-build.sh).
-# Same workload as the RUN bench (tools/bench-run.sh): compile a pinned Linux
+# Heavy from-source build for the cross-runtime BUILD bench (hack/bench-build.sh).
+# Same workload as the RUN bench (hack/bench-run.sh): compile a pinned Linux
 # kernel (vmlinux, arm64 defconfig) — thousands of files, heavy cc/ld fork-exec.
 # -j is FIXED here (not $(nproc)) so build parallelism is equal across runtimes
 # regardless of each build VM's CPU count. Self-contained; BASE/KURL are pinned.

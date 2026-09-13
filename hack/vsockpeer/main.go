@@ -1,5 +1,5 @@
 // Command vsockpeer is the GUEST half of the vsock proxy throughput bench
-// (tools/vsockbench). It runs inside the container and serves a unix socket —
+// (hack/vsockbench). It runs inside the container and serves a unix socket —
 // the same shape as buildkitd behind ExposeUnix — so the host can push and
 // pull bulk bytes through the production proxy path: host unix socket →
 // bidiPipe → vz vsock → guest agent bidiCopy → this socket.

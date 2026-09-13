@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cross-runtime `perf bench` comparison. The SAME pinned perf binary — built from our
-# kernel's in-tree tools/perf with every optional lib off, so `perf bench` is pure libc —
+# kernel's in-tree hack/perf with every optional lib off, so `perf bench` is pure libc —
 # is mounted into every runtime and run on whatever kernel that runtime provides. It
 # measures the kernel/userspace primitives containers actually hit:
 #   sched-pipe       context-switch latency (pipe ping-pong)      usecs/op  lower
