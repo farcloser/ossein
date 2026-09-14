@@ -27,9 +27,10 @@ Virtualization.framework; there is no daemon, nothing to install system-wide.
 
 ### From a release
 
-Every release ships `ossein_<version>_darwin_arm64.tar.gz`, a `checksums.txt`,
-and a Sigstore bundle signed keylessly by the release workflow itself — there is
-no signing key anywhere to leak. Verify before trusting:
+Every release ships `ossein_<version>_darwin_arm64.tar.gz` — `ossein` and its
+docker-shaped front `ossein-docker`, side by side — a `checksums.txt`, and a
+Sigstore bundle signed keylessly by the release workflow itself — there is no
+signing key anywhere to leak. Verify before trusting:
 
 ```sh
 cosign verify-blob --bundle checksums.txt.sigstore.json \
@@ -38,7 +39,7 @@ cosign verify-blob --bundle checksums.txt.sigstore.json \
     'https://github.com/farcloser/ossein/\.github/workflows/release\.yaml@refs/tags/v.*' \
   checksums.txt
 shasum -a 256 --check --ignore-missing checksums.txt
-tar xzf ossein_*_darwin_arm64.tar.gz ossein
+tar xzf ossein_*_darwin_arm64.tar.gz ossein ossein-docker
 ```
 
 The binary is signed ad hoc with the Virtualization entitlement — there is no
@@ -98,15 +99,48 @@ Ossein was built to bridge that gap:
 
 ## Usage(s)
 
-The best and intended way to run ossein is through aqua.
+The best and intended way to run ossein is through aqua, on a project's
+hermetic PATH. Flags are docker-shaped:
 
 ```
-cd myproject
-aqua add ...
+ossein pull debian@sha256:…                            # resolve + flatten into the local cache
+ossein run --rm -v "$PWD:/w" -w /w debian@sha256:… sh -c 'make'
+ossein run --rm --platform linux/amd64 debian@sha256:… uname -m   # amd64 via Rosetta
+eval "$(ossein buildkit --detach)"                     # per-project buildkitd; prints BUILDKIT_HOST
+ossein stop                                            # stop background instance(s)
+```
 
-ossein build 
+### `docker`, for scripts that expect one
+
+`ossein-docker` is a docker-shaped front for the handful of `docker` invocations
+build scripts actually make — `build`, `run`, `pull`, `stop`, `version` — with the
+flags they actually pass, and nothing else: an unknown flag or subcommand is
+refused, never silently dropped. Installed as `docker` on a hermetic PATH, a
+script written against docker or podman runs unchanged on a mac with no daemon.
 
 ```
+docker build -t app:dev --build-arg V=1 -f ci/Dockerfile .
+docker run --rm -v "$PWD:/w" -w /w app:dev make        # the tag resolves locally, offline
+```
+
+`run`, `pull` and `stop` exec the `ossein` next to the binary. `build` talks to
+buildkitd through the buildkit client library: it starts this directory's
+buildkit microVM (`ossein buildkit --detach`, reused if already up), solves the
+Dockerfile with the context and Dockerfile as local mounts, and records every
+`-t` tag in ossein's image cache — flattened and ready, so the `run` that follows
+boots warm. Registry credentials come from docker's own store (`docker login`).
+`--push` and `--output` are not part of it: the image cache is the destination.
+
+Where docker and ossein disagree, docker wins. A `run` or `build` that passes no
+`--cpus`/`--memory` gets the whole host — every CPU, all memory, backed lazily —
+as a container does under a daemon; `ossein run`'s own 2 vCPU / 4 GiB default
+does not apply through the front. `--cpus 1.5` rounds up to whole vCPUs, and
+`--memory` takes docker's units (`8g`, `8gb`, `512MiB`, `1.5g`).
+
+The first script written against it is `build-posix.sh` in
+[forkcloser/curl](https://github.com/forkcloser/curl), whose linux legs run in a
+digest-pinned debian container — podman on linux, this front on macOS, one
+invocation.
 
 ## Persistent build cache (per project)
 

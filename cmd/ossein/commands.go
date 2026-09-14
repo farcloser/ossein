@@ -22,10 +22,26 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 
+	"github.com/farcloser/ossein/internal/cli"
 	"github.com/farcloser/ossein/pkg/container"
 	"github.com/farcloser/ossein/pkg/image"
+	"github.com/farcloser/ossein/pkg/vm"
 	"github.com/farcloser/ossein/pkg/volume"
 )
+
+// sizeWholeHost resolves cli.WholeHost on either knob to what the host has;
+// explicit numbers pass through.
+func sizeWholeHost(cpus uint, memoryMiB uint64) (uint, uint64) {
+	if cpus == cli.WholeHost {
+		cpus = vm.HostMaxCPUs()
+	}
+
+	if memoryMiB == cli.WholeHost {
+		memoryMiB = vm.HostMaxMemoryMiB()
+	}
+
+	return cpus, memoryMiB
+}
 
 const (
 	// guestBkSock is where buildkitd listens inside the container; hostBkSock
@@ -44,6 +60,10 @@ const (
 	// the process incarnation so a recycled pid is never signaled.
 	pidFileName = "pid"
 	pidFileMode = 0o600
+
+	// buildkitLogName is the backgrounded child's stdout/stderr capture
+	// (inside InstanceDir), the file every "see the log" message points at.
+	buildkitLogName = "buildkit.log"
 
 	// buildkitDataDir is where buildkitd keeps its content store, cache metadata,
 	// and snapshots; backing it with a per-project ext4 volume is what makes the
@@ -75,24 +95,26 @@ const (
 // --- run ---
 
 type runCmd struct {
-	CPUs        uint   `default:"2"                   help:"vCPUs"               name:"cpus"`
-	Memory      uint64 `default:"4096"                help:"memory MiB"`
+	CPUs        uint   `default:"2"                   help:"vCPUs (0: every host CPU)"       name:"cpus"`
+	Memory      uint64 `default:"4096"                help:"memory MiB (0: all host memory)"`
 	Interactive bool   `help:"keep stdin open"        short:"i"`
-	TTY         bool   `help:"allocate a pseudo-TTY"  name:"tty"                 short:"t"`
+	TTY         bool   `help:"allocate a pseudo-TTY"  name:"tty"                             short:"t"`
 	Privileged  bool   `help:"grant all capabilities"`
-	Network     bool   `default:"true"                help:"outbound networking" negatable:""`
+	Network     bool   `default:"true"                help:"outbound networking"             negatable:""`
 	// Rm is a no-op: every run owns a throwaway microVM that is always torn down
 	// on exit (see runCmd.Run's deferred Close). Accepted only so docker-shaped
 	// scripts that pass --rm don't fail on an unknown flag.
-	Rm         bool     `help:"no-op; the container is always removed on exit (docker compatibility)"                        name:"rm"`
-	Cwd        string   `help:"working directory inside the container"                                                       name:"workdir"                              short:"w"`
-	User       string   `help:"numeric uid[:gid]"`
-	Env        []string `help:"set environment variables: KEY=VALUE, or bare KEY to pass through from the host (repeatable)" short:"e"`
-	EnvFile    []string `help:"read environment variables from a file (docker --env-file, repeatable)"                       name:"env-file"`
+	Rm   bool   `help:"no-op; the container is always removed on exit (docker compatibility)" name:"rm"`
+	Cwd  string `help:"working directory inside the container"                                name:"workdir" short:"w"`
+	User string `help:"numeric uid[:gid]"`
+	// sep:"none": kong would otherwise split every value on commas, and
+	// `-e LIST=a,b` is an ordinary environment variable.
+	Env        []string `help:"set environment variables: KEY=VALUE, or bare KEY to pass through from the host (repeatable)" sep:"none"                                  short:"e"`
+	EnvFile    []string `help:"read environment variables from a file (docker --env-file, repeatable)"                       name:"env-file"                             sep:"none"`
 	Platform   string   `help:"linux/amd64 | linux/arm64 (default: host; amd64 runs via Rosetta)"`
 	Pull       string   `default:"missing"                                                                                   enum:"always,missing,never"                 help:"pull policy: always | missing | never (missing skips the registry when the image is already local)" name:"pull"`
 	ConsoleLog string   `help:"guest console log file"                                                                       name:"console-log"`
-	Volume     []string `help:"docker -v bind mount: host-dir:dest[:options] (repeatable)"                                   name:"volume"                               short:"v"`
+	Volume     []string `help:"docker -v bind mount: host-dir:dest[:options] (repeatable)"                                   name:"volume"                               sep:"none"                                                                                                short:"v"`
 	Image      string   `arg:""                                                                                              help:"image reference"`
 	Command    []string `arg:""                                                                                              help:"command + args (overrides image CMD)" optional:""                                                                                               passthrough:""`
 }
@@ -313,6 +335,8 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 	if err := requireArtifacts(art); err != nil {
 		return err
 	}
+
+	c.CPUs, c.Memory = sizeWholeHost(c.CPUs, c.Memory)
 
 	mounts := make([]container.Mount, 0, len(c.Volume))
 
@@ -565,8 +589,8 @@ func makeRaw(ctx context.Context, inst *container.Instance) func() {
 // --- buildkit ---
 
 type buildkitCmd struct {
-	CPUs   uint   `default:"4"    help:"vCPUs"      name:"cpus"`
-	Memory uint64 `default:"8192" help:"memory MiB"`
+	CPUs   uint   `default:"4"    help:"vCPUs (0: every host CPU)"       name:"cpus"`
+	Memory uint64 `default:"8192" help:"memory MiB (0: all host memory)"`
 	// The default is the digest-pinned image linked in at build time (main.buildkitImage,
 	// fed from the Justfile); kong interpolates it via kong.Vars.
 	Image      string `default:"${buildkit_image}"                                                                                             help:"buildkit image (digest-pinned by default)"`
@@ -588,6 +612,9 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 		return err
 	}
 
+	// Resolved before detach re-execs the child, so both see the same numbers.
+	c.CPUs, c.Memory = sizeWholeHost(c.CPUs, c.Memory)
+
 	cacheDir, gitignore, err := c.resolveCacheDir()
 	if err != nil {
 		return err
@@ -598,6 +625,21 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 		fmt.Fprintln(os.Stdout, cacheDir)
 
 		return nil
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// --detach is idempotent per cache: an instance already serving this
+	// project's cache is reused (its BUILDKIT_HOST printed again) rather than
+	// refused, so `eval "$(ossein buildkit --detach)"` twice — or the
+	// docker-shaped front issuing it before every build — never fails on its
+	// own previous success. Only for the default socket: a caller naming a
+	// --sock asked for THAT socket, not whichever one is up.
+	if c.Detach && c.Sock == "" {
+		if done, err := reuseInstance(ctx, logger, cacheDir); done || err != nil {
+			return err
+		}
 	}
 
 	// Fail fast with an actionable message if this project's cache is already
@@ -613,9 +655,6 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 			cacheDir,
 		)
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	// A user-supplied socket that something still answers on belongs to a
 	// previous instance (or an unrelated daemon): fail before booting a VM —
@@ -682,6 +721,19 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 		return err
 	}
 
+	// The socket path is fixed before Boot (the instance dir IS dir: Boot
+	// derives it from the same id) so the record below is complete from the
+	// start — a concurrent `--detach` for this cache then finds the instance
+	// and waits for the socket instead of hitting the lock.
+	hostSock, err := resolveSock(c.Sock, dir)
+	if err != nil {
+		return err
+	}
+
+	if err := writeBuildkitRecord(dir, buildkitRecord{Cache: cacheDir, Sock: hostSock}); err != nil {
+		return err
+	}
+
 	// Registered before inst.Close's defer below so LIFO runs Close first and
 	// the console log survives until teardown has finished.
 	defer func() {
@@ -720,11 +772,6 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	defer release()
 
 	if err := inst.StartProcess(ctx); err != nil {
-		return err
-	}
-
-	hostSock, err := resolveSock(c.Sock, inst.Dir)
-	if err != nil {
 		return err
 	}
 
@@ -877,7 +924,7 @@ func (c *buildkitCmd) detach(
 		return err
 	}
 
-	logPath := filepath.Join(dir, "buildkit.log")
+	logPath := filepath.Join(dir, buildkitLogName)
 
 	logFile, err := os.Create(logPath) // #nosec G304 -- logPath is a ossein-owned state-dir path
 	if err != nil {

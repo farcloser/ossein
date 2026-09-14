@@ -180,9 +180,25 @@ const (
 	PullNever   = "never"   // offline only; error if never resolved locally
 )
 
+// The ErrResolve wrappings shared by Resolve, Import and the cache-key code.
+func errParseRef(ref string, err error) error {
+	return fmt.Errorf("%w: parse ref %q: %w", ErrResolve, ref, err)
+}
+
+func errDigest(ref string, err error) error {
+	return fmt.Errorf("%w: digest %s: %w", ErrResolve, ref, err)
+}
+
+func errResolveCache(ref string, err error) error {
+	return fmt.Errorf("%w: resolve cache for %s: %w", ErrResolve, ref, err)
+}
+
 // rootfsIdentifier is the content-cache key for a manifest digest. The codec
 // and flatten-generation segments ride along so that any change in what the
 // cache stores for a digest is a clean miss instead of a stale serve.
+// logKeyErr is the slog key every warning here files its error under.
+const logKeyErr = "err"
+
 func rootfsIdentifier(dgst string) string {
 	return dgst + "+" + rootfsCodec + "+" + flattenGeneration
 }
@@ -236,7 +252,7 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 
 	parsed, err := name.ParseReference(ref)
 	if err != nil {
-		return nil, fmt.Errorf("%w: parse ref %q: %w", ErrResolve, ref, err)
+		return nil, errParseRef(ref, err)
 	}
 
 	platform, err := requestedPlatform(platformStr)
@@ -276,29 +292,34 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 			return nil, err
 		}
 
-		dgst, err := img.Digest()
-		if err != nil {
-			return nil, fmt.Errorf("%w: digest %s: %w", ErrResolve, ref, err)
+		var index []byte
+		if desc.MediaType.IsIndex() {
+			index = desc.Manifest
 		}
 
-		cfg, err := img.ConfigFile()
+		rec, err := newResolution(img, index, false)
 		if err != nil {
-			return nil, fmt.Errorf("%w: config %s: %w", ErrResolve, ref, err)
+			return nil, fmt.Errorf("%w: %s: %w", ErrResolve, ref, err)
 		}
 
-		// Record ref@platform → digest+config so a later missing/never run is
-		// offline, with the manifest chain a digest-pinned ref is verified
-		// against (see verifyPinnedRecord). Best-effort: a cache-write failure
-		// must not fail the run.
-		if rec, recErr := chainedResolution(desc, img, dgst.String(), cfg.Config); recErr == nil {
-			if cachePath, cacheErr := resolveCacheFile(ref, platKey); cacheErr == nil {
-				storeResolution(cachePath, rec)
-			}
+		// Record ref@platform so a later missing/never run is offline, with
+		// the manifest chain a digest-pinned ref is verified against. The
+		// image is in hand, so a failed record does not fail the run — but
+		// it is said, not swallowed.
+		if cachePath, cacheErr := resolveCacheFile(ref, platKey); cacheErr != nil {
+			slog.Default().Warn("resolution not recorded; the next run resolves again", "ref", ref, logKeyErr, cacheErr)
+		} else {
+			storeResolution(cachePath, rec)
+		}
+
+		hash, err := v1.NewHash(rec.Digest)
+		if err != nil {
+			return nil, errDigest(ref, err)
 		}
 
 		return &Image{
-			Ref: ref, Digest: dgst.Hex, Config: cfg.Config, Platform: platform,
-			cache: store, source: img, identifier: rootfsIdentifier(dgst.String()),
+			Ref: ref, Digest: hash.Hex, Config: rec.Config, Platform: platform,
+			cache: store, source: img, identifier: rootfsIdentifier(rec.Digest),
 		}, nil
 	}
 
@@ -309,12 +330,12 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 	// missing / never: try the local resolve cache first (skips the registry).
 	cachePath, err := resolveCacheFile(ref, platKey)
 	if err != nil {
-		return nil, fmt.Errorf("%w: resolve cache for %s: %w", ErrResolve, ref, err)
+		return nil, errResolveCache(ref, err)
 	}
 
 	res, err := loadResolution(cachePath)
 	if err != nil {
-		return nil, fmt.Errorf("%w: resolve cache for %s: %w", ErrResolve, ref, err)
+		return nil, errResolveCache(ref, err)
 	}
 
 	if res == nil {
@@ -352,15 +373,70 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 	// the digest-keyed cache or fail when the tag moved upstream; the tag is
 	// only ever re-resolved when the user asks, via --pull=always); never
 	// refuses (offline contract). The closure carries Resolve's ctx.
-	if pull == PullNever {
+	switch {
+	case res.Local:
+		// Imported (locally built): no registry has this digest, so a reclaimed
+		// blob can only come back from a rebuild — never from a re-fetch, which
+		// would hit whatever the registry serves under that name.
+		img.resolveSource = func() (v1.Image, error) {
+			return nil, fmt.Errorf("%w: rootfs for locally built %q is no longer cached; rebuild it",
+				ErrCache, ref)
+		}
+	case pull == PullNever:
 		img.resolveSource = func() (v1.Image, error) {
 			return nil, fmt.Errorf("%w: rootfs for %q not cached (--pull=never)", ErrCache, ref)
 		}
-	} else {
+	default:
 		img.resolveSource = pinnedFetcher(ctx, ref, parsed.Context().Digest(res.Digest))
 	}
 
 	return img, nil
+}
+
+// Import records src — an image that exists only locally (a build's output) —
+// under ref for platformStr, exactly as a registry resolution would be, and
+// returns it bound to the cache. After Import, `ossein run ref` resolves
+// offline under the default pull policy, and the returned Image's RootfsFile
+// flattens and caches the rootfs like a pull does (callers wanting a warm
+// cache drive it to completion). The resolution is marked local: a later GC of
+// the blob is reported as "rebuild", never re-fetched from a registry that
+// never had it. ref must parse as an image reference; the digest is src's
+// manifest digest.
+func Import(store Cache, ref, platformStr string, src v1.Image) (*Image, error) {
+	if _, err := name.ParseReference(ref); err != nil {
+		return nil, errParseRef(ref, err)
+	}
+
+	platform, err := requestedPlatform(platformStr)
+	if err != nil {
+		return nil, err
+	}
+
+	rec, err := newResolution(src, nil, true)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s: %w", ErrResolve, ref, err)
+	}
+
+	// The record IS the point of Import — a tag nobody can resolve afterwards
+	// is a failed import — so unlike Resolve's, this write is checked.
+	cachePath, err := resolveCacheFile(ref, platform.String())
+	if err != nil {
+		return nil, errResolveCache(ref, err)
+	}
+
+	if err := writeResolution(cachePath, rec); err != nil {
+		return nil, fmt.Errorf("%w: recording %s: %w", ErrCache, ref, err)
+	}
+
+	hash, err := v1.NewHash(rec.Digest)
+	if err != nil {
+		return nil, errDigest(ref, err)
+	}
+
+	return &Image{
+		Ref: ref, Digest: hash.Hex, Config: rec.Config, Platform: platform,
+		cache: store, source: src, identifier: rootfsIdentifier(rec.Digest),
+	}, nil
 }
 
 // pinnedFetcher is the lazy source for an Image resolved from the local cache:
@@ -407,6 +483,11 @@ type resolution struct {
 	Index      []byte `json:"index,omitempty"`
 	Manifest   []byte `json:"manifest,omitempty"`
 	ConfigBlob []byte `json:"configBlob,omitempty"`
+
+	// Local marks a resolution recorded by Import (a locally built image): no
+	// registry serves its digest, so a reclaimed rootfs blob cannot be
+	// re-fetched — only rebuilt.
+	Local bool `json:"local,omitempty"`
 }
 
 // requestedPlatform parses platformStr ("" → the host).
@@ -466,9 +547,11 @@ var errIndexMissingManifest = errors.New(
 	"index does not list the manifest for the platform; the record was altered, re-pull with --pull=always",
 )
 
-// chainedResolution builds the record for what desc (the bytes the ref
-// named) and img (the platform image chosen from it) resolved to.
-func chainedResolution(desc *remote.Descriptor, img v1.Image, dgst string, cfg v1.Config) (resolution, error) {
+// newResolution is the record for img: digest and config derived from the
+// image's own bytes, the manifest chain kept as those bytes. index is the raw
+// index the ref named when it named one (nil otherwise); local marks a build
+// no registry serves.
+func newResolution(img v1.Image, index []byte, local bool) (resolution, error) {
 	manifest, err := img.RawManifest()
 	if err != nil {
 		return resolution{}, fmt.Errorf("raw manifest: %w", err)
@@ -479,13 +562,15 @@ func chainedResolution(desc *remote.Descriptor, img v1.Image, dgst string, cfg v
 		return resolution{}, fmt.Errorf("raw config: %w", err)
 	}
 
-	rec := resolution{Digest: dgst, Config: cfg, Manifest: manifest, ConfigBlob: configBlob}
-
-	if desc.MediaType.IsIndex() {
-		rec.Index = desc.Manifest
+	cfg, err := img.ConfigFile()
+	if err != nil {
+		return resolution{}, fmt.Errorf("config: %w", err)
 	}
 
-	return rec, nil
+	return resolution{
+		Digest: bytesDigest(manifest), Config: cfg.Config,
+		Index: index, Manifest: manifest, ConfigBlob: configBlob, Local: local,
+	}, nil
 }
 
 // bytesDigest is the "sha256:…" digest of raw bytes.
@@ -618,7 +703,7 @@ func resolveCacheFile(ref, platform string) (string, error) {
 func resolveCacheFileName(ref, platform string) (string, error) {
 	parsed, err := name.ParseReference(ref)
 	if err != nil {
-		return "", fmt.Errorf("%w: parse ref %q: %w", ErrResolve, ref, err)
+		return "", errParseRef(ref, err)
 	}
 
 	sum := sha256.Sum256([]byte(parsed.Name() + "\x00" + platform))
@@ -646,22 +731,33 @@ func loadResolution(path string) (*resolution, error) {
 	return &r, nil
 }
 
-// storeResolution records a resolution at path. Best-effort: failures are
-// swallowed — a warm-run optimization must never fail a run.
+// storeResolution records a resolution at path for Resolve, which has the
+// image in hand and must not fail on a cache write — but must not hide one.
 func storeResolution(path string, res resolution) {
+	if err := writeResolution(path, res); err != nil {
+		slog.Default().Warn("resolution not recorded; the next run resolves again", "path", path, logKeyErr, err)
+	}
+}
+
+// writeResolution records a resolution at path atomically (write-then-rename).
+func writeResolution(path string, res resolution) error {
 	if err := os.MkdirAll(filepath.Dir(path), cacheDirPerm); err != nil {
-		return
+		return fmt.Errorf("creating resolve cache dir: %w", err)
 	}
 
 	encoded, err := json.Marshal(res)
 	if err != nil {
-		return
+		return fmt.Errorf("encoding resolution: %w", err)
 	}
 
 	// Unique temp, fsync, rename: a crash never leaves a torn record under
 	// the real name, and two runs of the same ref cannot rename each other's
 	// half-written temp.
-	_ = filesystem.WriteFile(path, encoded, cacheFilePerm)
+	if err := filesystem.WriteFile(path, encoded, cacheFilePerm); err != nil {
+		return fmt.Errorf("writing resolution: %w", err)
+	}
+
+	return nil
 }
 
 // RootfsFile returns the flattened rootfs blob as a complete, immutable,
@@ -740,7 +836,7 @@ func (i *Image) flatten() (io.ReadCloser, error) {
 		// run. Never store bytes under an identifier they don't match.
 		fetchedDigest, err := fetched.Digest()
 		if err != nil {
-			return nil, fmt.Errorf("%w: digest %s: %w", ErrResolve, i.Ref, err)
+			return nil, errDigest(i.Ref, err)
 		}
 
 		if fetchedDigest.Hex != i.Digest {
