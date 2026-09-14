@@ -18,7 +18,7 @@ require (
 	github.com/google/go-containerregistry v0.21.9
 	github.com/mdlayher/vsock v1.3.0
 	github.com/moby/sys/capability v0.4.0
-	github.com/mycophonic/primordium v0.9.0
+	github.com/mycophonic/primordium v0.9.1
 	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/mod v0.40.0
