@@ -17,12 +17,39 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/farcloser/ossein/internal/protocol"
 	"github.com/farcloser/ossein/third_party/vz"
 )
+
+// HostMaxCPUs is every CPU the host has, as far as one guest can use them: the
+// host's logical CPU count, capped at what Virtualization.framework allows.
+// The framework's own maximum is not the host's (64 on an 18-core machine): it
+// is what a guest may be configured with, not what runs without
+// oversubscribing the host.
+func HostMaxCPUs() uint {
+	return min(uint(runtime.NumCPU()), vz.VirtualMachineConfigurationMaximumAllowedCPUCount())
+}
+
+// HostMaxMemoryMiB is all of the host's physical memory, capped at what
+// Virtualization.framework allows for one guest, in MiB. The framework backs
+// guest memory lazily, so a guest sized this way costs what it touches, not
+// what it was given.
+func HostMaxMemoryMiB() uint64 {
+	allowed := vz.VirtualMachineConfigurationMaximumAllowedMemorySize()
+
+	physical, err := unix.SysctlUint64("hw.memsize")
+	if err != nil || physical == 0 {
+		physical = allowed
+	}
+
+	return min(physical, allowed) >> 20
+}
 
 // Disk is an extra virtio-blk attachment (after the initfs at /dev/vda).
 type Disk struct {
