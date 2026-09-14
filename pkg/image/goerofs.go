@@ -139,7 +139,7 @@ func convertTarToEROFS(tarStream io.Reader, img *os.File, tmpDir string) error {
 			continue // metadata lives on the shared inode
 
 		case tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
-			if err := writer.Mknod(name, erofsRawMode(hdr), erofsRdev(hdr)); err != nil {
+			if err := writer.Mknod(name, hdr.FileInfo().Mode(), erofsRdev(hdr)); err != nil {
 				return fmt.Errorf("%s: mknod: %w", name, err)
 			}
 
@@ -219,28 +219,6 @@ func erofsPath(name string) string {
 
 	return cleaned
 }
-
-// erofsRawMode builds the raw stat mode (type bits | permissions) Mknod
-// expects.
-func erofsRawMode(hdr *tar.Header) uint16 {
-	perm := uint16(hdr.Mode & 0o7777)
-
-	switch hdr.Typeflag {
-	case tar.TypeChar:
-		return statTypeChr | perm
-	case tar.TypeBlock:
-		return statTypeBlk | perm
-	default:
-		return statTypeFifo | perm
-	}
-}
-
-// Raw stat type bits (sys/stat.h), shared across unixes.
-const (
-	statTypeFifo uint16 = 0o010000
-	statTypeChr  uint16 = 0o020000
-	statTypeBlk  uint16 = 0o060000
-)
 
 // rdev encoding, Linux new_encode_dev layout: low byte of minor, then 12
 // bits of major, then the minor's high bits — the old major<<8|minor form is

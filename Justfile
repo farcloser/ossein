@@ -34,8 +34,8 @@ guest_kernel_issuer := "https://github.com/login/oauth"
 # To bump: pick the release, then re-resolve the digest with
 #   just buildkit-digest v0.33.0
 buildkit_repo := "docker.io/moby/buildkit"
-buildkit_tag := "v0.32.0"
-buildkit_digest := "sha256:1f8167fcb0eca5b7126353d35299386945cbb8949cc516c592a49f80cfce4fa2"
+buildkit_tag := "v0.33.0"
+buildkit_digest := "sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3"
 buildkit_ref := buildkit_repo + ":" + buildkit_tag + "@" + buildkit_digest
 
 # The FIRST recipe defined here becomes `just`'s default.
