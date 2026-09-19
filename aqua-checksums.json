@@ -256,23 +256,23 @@
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/protocolbuffers/protobuf/v35.1/protoc-35.1-linux-aarch_64.zip",
-      "checksum": "01BF9D08808C7F96678B63F4BD8EFA559BB4F83D5A7A270D5EDAF507F9D5D9CF",
+      "id": "github_release/github.com/protocolbuffers/protobuf/v36.1/protoc-36.1-linux-aarch_64.zip",
+      "checksum": "237A68856EDF1BD28B6204BDDD0596C1CF46D298BC29C620012540B2E44C73E7",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/protocolbuffers/protobuf/v35.1/protoc-35.1-linux-x86_64.zip",
-      "checksum": "6930EBF62BD4EA607B98FFF052596C6EE564B9835B4CE172C75A3F53AE9D91B7",
+      "id": "github_release/github.com/protocolbuffers/protobuf/v36.1/protoc-36.1-linux-x86_64.zip",
+      "checksum": "C4BC672D9D49214DC8CAFDCEADF4DF92182D6CA8E3EC65A56B2D7DE5602669B4",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/protocolbuffers/protobuf/v35.1/protoc-35.1-osx-aarch_64.zip",
-      "checksum": "193289AF0470C6A1AADA357D4FBA0BBF8D78BFAAC8B5E42CA30AF2EF75583DE2",
+      "id": "github_release/github.com/protocolbuffers/protobuf/v36.1/protoc-36.1-osx-aarch_64.zip",
+      "checksum": "DE56D57AFE30C5D191B11D24FF93DD4025728D7FB43B773886B2D3613E0BDBB2",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/protocolbuffers/protobuf/v35.1/protoc-35.1-win64.zip",
-      "checksum": "5D3FF218D7D91EEA95F7569BCB5A98F3030F8996D44151279D9772EDCFF76082",
+      "id": "github_release/github.com/protocolbuffers/protobuf/v36.1/protoc-36.1-win64.zip",
+      "checksum": "390E515CB456E6A978553BDB57BAF087B054885077FD6DA7F7FF0160279C07D6",
       "algorithm": "sha256"
     },
     {
