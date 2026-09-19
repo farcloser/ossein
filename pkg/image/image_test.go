@@ -4,15 +4,18 @@ package image
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	goerofs "github.com/forkcloser/erofs"
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
@@ -156,56 +159,85 @@ func mustRootfsFile(t *testing.T, img *Image) *blobcache.PinnedFile {
 	return pin
 }
 
-func TestResolutionRoundTrip(t *testing.T) {
+func TestAcquireRecordDropsWhatIsNotARecord(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "res.json")
-	cfg := v1.Config{Entrypoint: []string{"/bin/sh"}, Env: []string{"FOO=bar"}}
-
-	storeResolution(path, resolution{Digest: "sha256:deadbeef", Config: cfg})
-
-	res, err := loadResolution(path)
+	cache, err := openCache(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if res == nil {
-		t.Fatal("stored resolution reads as a miss")
+	defer func() { _ = cache.Close() }()
+
+	const identifier = "resolve|example.com/x:dev|linux/arm64|test"
+
+	// Something else wrote bytes under our identifier.
+	writeRaw(t, cache, identifier, []byte("{not a record"))
+
+	// A refusing fetch: the garbage is dropped, the refusal is the answer.
+	_, err = acquireRecord(cache, identifier, func() (io.ReadCloser, error) {
+		return nil, fmt.Errorf("%w: refused", ErrResolve)
+	})
+	if !errors.Is(err, ErrResolve) {
+		t.Fatalf("acquireRecord(garbage, refuse) = %v, want ErrResolve", err)
 	}
 
-	if res.Digest != "sha256:deadbeef" {
-		t.Fatalf("digest = %q, want sha256:deadbeef", res.Digest)
+	// A fetch that answers: the garbage is dropped and the answer stored.
+	want := resolution{Digest: "sha256:deadbeef", Config: v1.Config{Entrypoint: []string{"/bin/sh"}}}
+	fetched := 0
+
+	got, err := acquireRecord(cache, identifier, func() (io.ReadCloser, error) {
+		fetched++
+
+		return io.NopCloser(bytes.NewReader(mustJSON(t, want))), nil
+	})
+	if err != nil || got.Digest != want.Digest || !reflect.DeepEqual(got.Config.Entrypoint, want.Config.Entrypoint) {
+		t.Fatalf("acquireRecord(garbage, answer) = (%+v, %v)", got, err)
 	}
 
-	if !reflect.DeepEqual(res.Config.Entrypoint, cfg.Entrypoint) || !reflect.DeepEqual(res.Config.Env, cfg.Env) {
-		t.Fatalf("config round-trip mismatch: %+v", res.Config)
-	}
+	// Now a hit: the fetch is not called again.
+	if _, err := acquireRecord(cache, identifier, func() (io.ReadCloser, error) {
+		fetched++
 
-	// Corrupt entry → clean miss (nil, nil), never an error.
-	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		return nil, errors.New("must not fetch on a hit")
+	}); err != nil || fetched != 1 {
+		t.Fatalf("hit = (%v, fetched %d), want no fetch", err, fetched)
+	}
+}
+
+func TestResolveAlwaysDropsTheRecord(t *testing.T) {
+	t.Parallel()
+
+	cache, err := openCache(t.TempDir())
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	res, err = loadResolution(path)
-	if err != nil {
-		t.Fatalf("corrupt resolution must not error: %v", err)
+	defer func() { _ = cache.Close() }()
+
+	fixture := newPinnedFixture(t)
+	ref := "example.com/pinned@" + fixture.idxDigest
+	writeRecord(t, cache, ref, fixture.record)
+
+	// never: served from the record.
+	if _, err := Resolve(context.Background(), cache, ref, "", PullNever); err != nil {
+		t.Fatalf("Resolve(never) = %v", err)
 	}
 
-	if res != nil {
-		t.Fatalf("corrupt resolution must read as a miss, got %+v", res)
+	// always: the record is dropped first, so the registry is consulted — an
+	// example.com registry this test cannot reach, which is the proof.
+	if _, err := Resolve(context.Background(), cache, ref, "", PullAlways); !errors.Is(err, ErrResolve) {
+		t.Fatalf("Resolve(always) = %v, want ErrResolve from the registry", err)
 	}
 
-	// Absent file → clean miss too.
-	res, err = loadResolution(filepath.Join(t.TempDir(), "absent.json"))
-	if err != nil || res != nil {
-		t.Fatalf("absent resolution = (%+v, %v), want (nil, nil)", res, err)
+	// And the record did not survive the attempt.
+	if _, err := Resolve(context.Background(), cache, ref, "", PullNever); !errors.Is(err, ErrResolve) {
+		t.Fatalf("Resolve(never) after always = %v, want ErrResolve (not resolved locally)", err)
 	}
 }
 
 func TestResolvePullNeverUncachedFails(t *testing.T) {
-	// Redirect $HOME so the resolve cache (under dirs.CacheDir) is empty and the
-	// test never touches the user's real cache. t.Setenv forbids t.Parallel.
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
 
 	cache, err := openCache(t.TempDir())
 	if err != nil {
@@ -217,6 +249,11 @@ func TestResolvePullNeverUncachedFails(t *testing.T) {
 	_, err = Resolve(context.Background(), cache, "example.com/never/cached:latest", "", PullNever)
 	if !errors.Is(err, ErrResolve) {
 		t.Fatalf("Resolve(PullNever, uncached) = %v, want ErrResolve", err)
+	}
+
+	// The refusal is the whole message: no store framing around it.
+	if msg := err.Error(); !strings.Contains(msg, "--pull=never") || strings.Contains(msg, "fetch:") {
+		t.Fatalf("refusal is framed by the store: %q", msg)
 	}
 }
 
@@ -281,21 +318,50 @@ func newPinnedFixture(t *testing.T) pinnedFixture {
 	}
 }
 
-// writeRecord stores rec as the resolution for ref on the host platform.
-func writeRecord(t *testing.T, ref string, rec resolution) {
+// writeRecord stores rec as ref's record for the host platform, replacing
+// whatever the identifier held.
+func writeRecord(t *testing.T, store Cache, ref string, rec resolution) {
 	t.Helper()
 
-	path, err := resolveCacheFile(ref, hostPlatform().String())
+	parsed, err := name.ParseReference(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	storeResolution(path, rec)
+	writeRaw(t, store, resolveIdentifier(parsed, hostPlatform().String()), mustJSON(t, rec))
+}
+
+// writeRaw stores raw bytes under identifier, replacing whatever it held.
+func writeRaw(t *testing.T, store Cache, identifier string, raw []byte) {
+	t.Helper()
+
+	if err := store.Invalidate(identifier); err != nil {
+		t.Fatal(err)
+	}
+
+	pin, err := store.AcquireFile(identifier, nil, func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(raw)), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = pin.Release()
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return raw
 }
 
 func TestResolvePinnedRefVerifiesTheChain(t *testing.T) {
-	// Records live under dirs.CacheDir: redirect $HOME. t.Setenv forbids t.Parallel.
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
 
 	cache, err := openCache(t.TempDir())
 	if err != nil {
@@ -308,7 +374,7 @@ func TestResolvePinnedRefVerifiesTheChain(t *testing.T) {
 
 	// Pinned to the index: verified through Index → Manifest → ConfigBlob.
 	viaIndex := "example.com/pinned@" + fixture.idxDigest
-	writeRecord(t, viaIndex, fixture.record)
+	writeRecord(t, cache, viaIndex, fixture.record)
 
 	for _, pull := range []string{PullNever, PullMissing} {
 		got, err := Resolve(context.Background(), cache, viaIndex, "", pull)
@@ -325,7 +391,7 @@ func TestResolvePinnedRefVerifiesTheChain(t *testing.T) {
 	direct := "example.com/pinned@" + fixture.imgDigest
 	rec := fixture.record
 	rec.Index = nil
-	writeRecord(t, direct, rec)
+	writeRecord(t, cache, direct, rec)
 
 	if _, err := Resolve(context.Background(), cache, direct, "", PullNever); err != nil {
 		t.Fatalf("Resolve(pinned to manifest) = %v", err)
@@ -333,7 +399,7 @@ func TestResolvePinnedRefVerifiesTheChain(t *testing.T) {
 }
 
 func TestResolvePinnedRefRefusesAnAlteredRecord(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
 
 	cache, err := openCache(t.TempDir())
 	if err != nil {
@@ -346,7 +412,7 @@ func TestResolvePinnedRefRefusesAnAlteredRecord(t *testing.T) {
 	other := newPinnedFixture(t)
 	ref := "example.com/pinned@" + fixture.idxDigest
 
-	for name, alter := range map[string]func(*resolution){
+	for label, alter := range map[string]func(*resolution){
 		// The digest field points elsewhere while the bytes still hash: caught
 		// by Digest ≠ sha256(Manifest).
 		"digest swapped": func(r *resolution) { r.Digest = other.imgDigest },
@@ -365,18 +431,18 @@ func TestResolvePinnedRefRefusesAnAlteredRecord(t *testing.T) {
 	} {
 		rec := fixture.record
 		alter(&rec)
-		writeRecord(t, ref, rec)
+		writeRecord(t, cache, ref, rec)
 
 		for _, pull := range []string{PullNever, PullMissing} {
 			if _, err := Resolve(context.Background(), cache, ref, "", pull); !errors.Is(err, ErrResolve) {
-				t.Errorf("%s, Resolve(%s) = %v, want ErrResolve", name, pull, err)
+				t.Errorf("%s, Resolve(%s) = %v, want ErrResolve", label, pull, err)
 			}
 		}
 	}
 }
 
 func TestResolvePinnedRefWithoutChainNeedsARePull(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
 
 	cache, err := openCache(t.TempDir())
 	if err != nil {
@@ -393,7 +459,7 @@ func TestResolvePinnedRefWithoutChainNeedsARePull(t *testing.T) {
 	// Pinned ref: never refuses and says how to fix it (missing would go to
 	// the registry, which a unit test cannot).
 	pinned := "example.com/pinned@" + fixture.idxDigest
-	writeRecord(t, pinned, legacy)
+	writeRecord(t, cache, pinned, legacy)
 
 	_, err = Resolve(context.Background(), cache, pinned, "", PullNever)
 	if !errors.Is(err, ErrResolve) || !strings.Contains(err.Error(), "--pull=always") {
@@ -402,7 +468,7 @@ func TestResolvePinnedRefWithoutChainNeedsARePull(t *testing.T) {
 
 	// A tag is not pinned to anything: the same legacy record still serves it.
 	tag := "example.com/pinned:dev"
-	writeRecord(t, tag, legacy)
+	writeRecord(t, cache, tag, legacy)
 
 	got, err := Resolve(context.Background(), cache, tag, "", PullNever)
 	if err != nil || "sha256:"+got.Digest != fixture.imgDigest {
@@ -469,52 +535,39 @@ func TestCanonicalPlatform(t *testing.T) {
 	}
 }
 
-func TestResolveCacheKeyNormalization(t *testing.T) {
+func TestResolveIdentifierNormalization(t *testing.T) {
 	t.Parallel()
 
-	short, err := resolveCacheFileName("debian", "linux/arm64")
-	if err != nil {
-		t.Fatal(err)
+	identifierOf := func(ref, platform string) string {
+		parsed, err := name.ParseReference(ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return resolveIdentifier(parsed, platform)
 	}
 
-	full, err := resolveCacheFileName("docker.io/library/debian:latest", "linux/arm64")
-	if err != nil {
-		t.Fatal(err)
+	short := identifierOf("debian", "linux/arm64")
+
+	if full := identifierOf("docker.io/library/debian:latest", "linux/arm64"); full != short {
+		t.Fatalf("equivalent refs map to different identifiers: %q vs %q", short, full)
 	}
 
-	if short != full {
-		t.Fatalf("equivalent refs map to different cache files: %q vs %q", short, full)
+	if other := identifierOf("debian", "linux/amd64"); other == short {
+		t.Fatal("different platforms map to the same identifier")
 	}
 
-	// A different platform must be a different entry.
-	other, err := resolveCacheFileName("debian", "linux/amd64")
-	if err != nil {
-		t.Fatal(err)
+	if tagged := identifierOf("debian:bookworm", "linux/arm64"); tagged == short {
+		t.Fatal("different tags map to the same identifier")
 	}
 
-	if other == short {
-		t.Fatal("different platforms map to the same cache file")
-	}
-
-	// A different tag must be a different entry.
-	tagged, err := resolveCacheFileName("debian:bookworm", "linux/arm64")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if tagged == short {
-		t.Fatal("different tags map to the same cache file")
-	}
-
-	if _, err := resolveCacheFileName("UPPER not a ref!!", "linux/arm64"); !errors.Is(err, ErrResolve) {
-		t.Fatalf("invalid ref = %v, want ErrResolve", err)
+	if !strings.HasSuffix(short, "|"+recordGeneration) {
+		t.Fatalf("identifier %q does not carry the record generation", short)
 	}
 }
 
 func TestImportResolvesOfflineAndFlattens(t *testing.T) {
-	// Redirect $HOME: Import writes the resolve cache under dirs.CacheDir.
-	// t.Setenv forbids t.Parallel.
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
 
 	cache, err := openCache(t.TempDir())
 	if err != nil {
