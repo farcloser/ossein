@@ -231,28 +231,28 @@
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/protocolbuffers/protobuf-go/v1.36.11/protoc-gen-go.v1.36.11.darwin.arm64.tar.gz",
-      "checksum": "31A1C65833213A925F6771DD84B749AC5B3F4DE30BE3694D8EC19E23FC44ACBF",
+      "id": "github_release/github.com/protocolbuffers/protobuf-go/v1.36.12/protoc-gen-go.v1.36.12.darwin.arm64.tar.gz",
+      "checksum": "951D1D2558BBBC8C6680DCB6D302263FA35302CB6E1FCCAD297A50D21D827F2B",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/protocolbuffers/protobuf-go/v1.36.11/protoc-gen-go.v1.36.11.linux.amd64.tar.gz",
-      "checksum": "6AD8F8FC11B96DC4DEB176F7EE84AF40E15D32E4608594BCC3534B7824A3DC71",
+      "id": "github_release/github.com/protocolbuffers/protobuf-go/v1.36.12/protoc-gen-go.v1.36.12.linux.amd64.tar.gz",
+      "checksum": "14ABE70D1557026D3DCE6676B7A44D3ADA91D79902C71CB075FBB8D315943320",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/protocolbuffers/protobuf-go/v1.36.11/protoc-gen-go.v1.36.11.linux.arm64.tar.gz",
-      "checksum": "8760755B06CBFE6E64478BBE16B60E518D89D059CCAF667DF05398D19636CBAD",
+      "id": "github_release/github.com/protocolbuffers/protobuf-go/v1.36.12/protoc-gen-go.v1.36.12.linux.arm64.tar.gz",
+      "checksum": "BF385E22E18661B044F7B96EC28384F3F76AA6DA10E956B450FFB949306768DE",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/protocolbuffers/protobuf-go/v1.36.11/protoc-gen-go.v1.36.11.windows.amd64.zip",
-      "checksum": "045CAC56DF5FAE04912D39B1E9F8E568F8A1EAF0ADC800A6E8BFBE97FD1BEF9C",
+      "id": "github_release/github.com/protocolbuffers/protobuf-go/v1.36.12/protoc-gen-go.v1.36.12.windows.amd64.zip",
+      "checksum": "AB2AA2C53DF000AD47C6A546E56556D9ADB1767E38136F7C9A042E0A1C22793F",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/protocolbuffers/protobuf-go/v1.36.11/protoc-gen-go.v1.36.11.windows.arm64.zip",
-      "checksum": "6AEDCF4D3A0E5D740B43ABE7D05C50DC83E6DCC7B0372556E11108EAB405FD28",
+      "id": "github_release/github.com/protocolbuffers/protobuf-go/v1.36.12/protoc-gen-go.v1.36.12.windows.arm64.zip",
+      "checksum": "E1BE29AC7430F3258DF1F14098715C80E7470DEAE0D204F3D8D4FB4A770B0947",
       "algorithm": "sha256"
     },
     {
