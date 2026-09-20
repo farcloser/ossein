@@ -492,9 +492,21 @@ func (m *VM) Close() error {
 
 	err := m.Stop()
 
+	// A guest that halts on its own while the stop is in flight makes the framework
+	// report "stopped unexpectedly" and leave the machine stopped or errored: either
+	// is the end state Close wants, and the network is released the same way.
+	if err != nil && isFinal(m.vm.State()) {
+		err = nil
+	}
+
 	m.network.Close()
 
 	return err
+}
+
+// isFinal reports a state no stop can change.
+func isFinal(state vz.VirtualMachineState) bool {
+	return state == vz.VirtualMachineStateStopped || state == vz.VirtualMachineStateError
 }
 
 // halfCloser is the shutdown(SHUT_WR) half of a duplex conn.
