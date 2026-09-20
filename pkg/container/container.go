@@ -828,16 +828,17 @@ func (i *Instance) Close(ctx context.Context) {
 		agentDur = time.Since(agentStart)
 	}
 
-	// Stopping through the framework costs ~50ms. It is only owed when
-	// durable state was attached (cache disks, whose flush above must land
-	// before the device detaches); a throwaway VM holds nothing that
-	// outlives it and dies with this process anyway (VZ VMs are in-process),
-	// so the polite stop is skipped and vm_stop=0 marks it in the log.
-	if i.vm != nil && len(i.mountedDisks) > 0 {
+	// Stopping through the framework costs ~50ms and is owed by every VM
+	// that had a NIC, throwaway or not: the stop detaches the device and the
+	// close behind it releases the vmnet subnet reservation, which otherwise
+	// outlives this process host-wide (VM.Close). The cache-disk flush above
+	// must land before the device detaches. A VM without a NIC skips the
+	// stop and vm_stop=0 marks it in the log.
+	if i.vm != nil {
 		vmStart := time.Now()
 
-		if err := i.vm.Stop(); err != nil {
-			slog.Default().Warn("vm stop", logKeyInstance, i.ID, logKeyErr, err)
+		if err := i.vm.Close(); err != nil {
+			slog.Default().Warn("vm close", logKeyInstance, i.ID, logKeyErr, err)
 		}
 
 		vmDur = time.Since(vmStart)

@@ -480,6 +480,23 @@ func (m *VM) Stop() error {
 	}
 }
 
+// Close stops the VM if it is still running, then releases its network. Every
+// VM that had a NIC owes this before the process exits, throwaway or not: the
+// stop is what detaches the device, and the release is what returns the subnet
+// to the host (see Network.Close). A VM without a NIC has nothing to release
+// and dies with the process, so the stop is skipped for it, as before.
+func (m *VM) Close() error {
+	if m.network == nil {
+		return nil
+	}
+
+	err := m.Stop()
+
+	m.network.Close()
+
+	return err
+}
+
 // halfCloser is the shutdown(SHUT_WR) half of a duplex conn.
 //
 // The assertion below is the contract Connect and Listen advertise: the conns
