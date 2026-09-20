@@ -32,8 +32,8 @@ import (
 // -X main.<name>=…); the literals here are the fallback for a plain `go build`.
 // buildkitImage MUST stay digest-pinned: the tag is decorative, the digest is
 // what makes an unchanged ossein commit always run the same buildkit. The
-// Justfile is the source of truth — bump buildkit_tag + buildkit_digest there
-// (`just buildkit-digest <tag>` resolves the new digest) and mirror it here.
+// Justfile is the source of truth; Renovate rewrites both places in one update
+// (renovate.json matches this literal's exact shape — keep it).
 //
 //nolint:gochecknoglobals // -ldflags -X targets must be package-level vars
 var (
