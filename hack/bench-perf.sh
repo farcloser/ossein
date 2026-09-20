@@ -54,7 +54,10 @@ CCPUS=$((CPUS - 1))          # apple-container runs requested+1 vCPUs -> --cpus 
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 B="$HERE/build"
-IMG="docker.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171"
+# perf-arm64 is built inside the kernel factory's Debian (trixie) and links that glibc; a
+# container on an older Debian refuses it ("GLIBC_2.38 not found"). Keep this at least
+# the factory's suite (ossein-kernel Justfile, kernel_debian_suite).
+IMG="docker.io/library/debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a"
 PERF=/bench/perf-arm64       # $B is mounted at /bench in every runtime; perf lives there
 
 [ -x "$B/perf-arm64" ] || { echo "missing $B/perf-arm64 (build it first: just kernel)" >&2; exit 1; }
