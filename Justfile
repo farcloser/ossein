@@ -18,7 +18,8 @@ export LINT_GO_LICENSES_FLAGS := '--ignore=github.com/in-toto/attestation --igno
 # non-semver, distro-kernel style tag. The pinned kernel MUST be built with
 # CONFIG_BLK_DEV_INITRD=y: the guest boots a cpio via rdinit= with no root
 # device, and a kernel without it hangs, surfacing only as a handshake timeout.
-# Bump tag and sha256 together (fetch-kernel prints the real digest on mismatch).
+# Renovate bumps the tag; `just refresh-pins` brings the sha256 along from the release's
+# signed manifest (fetch-kernel refuses a mismatch).
 guest_kernel_repo := "farcloser/ossein-kernel"
 guest_kernel_tag := "7.1.5-ossein.2"
 guest_kernel_sha256 := "e73700fdcb05673b18bcb7f9cbca2a46b89ad27f9631474c77c707aab4f828c2"
@@ -31,8 +32,8 @@ guest_kernel_identity := '^(142371135\+[^@]+@users\.noreply\.github\.com|apostas
 guest_kernel_issuer := "https://github.com/login/oauth"
 
 # buildkit image reference used by `ossein buildkit`, linked into the binary at build time.
-# To bump: pick the release, then re-resolve the digest with
-#   just buildkit-digest v0.33.0
+# Renovate moves tag and digest, here and in cmd/ossein/main.go's fallback literal, in the
+# same pull request as the client module; `just buildkit-digest <tag>` resolves one by hand.
 buildkit_repo := "docker.io/moby/buildkit"
 buildkit_tag := "v0.33.0"
 buildkit_digest := "sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3"
@@ -217,12 +218,31 @@ fetch-kernel:
     # a re-published tag or re-signed asset cannot slip through.
     if [ "$actual" != "{{ guest_kernel_sha256 }}" ]; then
         echo "kernel digest mismatch: pinned {{ guest_kernel_sha256 }}, got $actual" >&2
-        echo "(bumping the kernel? update guest_kernel_sha256 in the Justfile)" >&2
+        echo "(bumping the kernel? run \`just refresh-pins\`)" >&2
         exit 1
     fi
     mkdir -p "$(dirname "$dest")"
     cp "$tmp/kernel-arm64" "$dest"
     echo ">> embedded guest kernel {{ guest_kernel_tag }} -> $dest"
+
+# Rewrite guest_kernel_sha256 from the pinned release's SHA256SUMS, after cosign has
+# proven who signed that manifest. Run after a tag bump (Renovate's or yours), then commit.
+refresh-pins:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="https://github.com/{{ guest_kernel_repo }}/releases/download/{{ guest_kernel_tag }}"
+    tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+    for a in SHA256SUMS SHA256SUMS.cosign.bundle; do
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o "$tmp/$a" "$base/$a"
+    done
+    cosign verify-blob --bundle "$tmp/SHA256SUMS.cosign.bundle" \
+        --certificate-identity-regexp "{{ guest_kernel_identity }}" \
+        --certificate-oidc-issuer "{{ guest_kernel_issuer }}" "$tmp/SHA256SUMS"
+    sum="$(grep ' kernel-arm64$' "$tmp/SHA256SUMS" | cut -d' ' -f1)"
+    [ -n "$sum" ] || { echo "refresh-pins: no kernel-arm64 in the signed SHA256SUMS" >&2; exit 1; }
+    grep -qE '^guest_kernel_sha256 := "[0-9a-f]{64}"$' Justfile || { echo "refresh-pins: no guest_kernel_sha256 line to rewrite" >&2; exit 1; }
+    sed -i.bak -E "s|^(guest_kernel_sha256 := \")[0-9a-f]{64}(\")$|\1$sum\2|" Justfile && rm Justfile.bak
+    echo ">> guest_kernel_sha256 = $sum"
 
 # Build the guest initfs → build/initfs.cpio: cross-compile PID 1 static, build the
 # host-side packaging tool, then pack the binary at /sbin/vminitd (matching the

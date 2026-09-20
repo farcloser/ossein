@@ -11,13 +11,47 @@
       "matchStrings": [
         "guest_kernel_tag := \"(?<currentValue>[^\"]+)\""
       ]
+    },
+    {
+      "customType": "regex",
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "docker.io/moby/buildkit",
+      "managerFilePatterns": [
+        "/^Justfile$/",
+        "/^cmd/ossein/main\\.go$/"
+      ],
+      "matchStrings": [
+        "buildkit_tag := \"(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+)\"\\nbuildkit_digest := \"(?<currentDigest>sha256:[0-9a-f]{64})\"",
+        "buildkitImage = \"docker\\.io/moby/buildkit:(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+)@\" \\+\\n\\s*\"(?<currentDigest>sha256:[0-9a-f]{64})\""
+      ]
+    },
+    {
+      "customType": "regex",
+      "datasourceTemplate": "docker",
+      "managerFilePatterns": [
+        "/^Justfile$/",
+        "/^hack/[^/]+\\.sh$/"
+      ],
+      "matchStrings": [
+        "[\"'= ](?<depName>(?:docker\\.io/)?(?:library/)?(?:debian|alpine)):(?<currentValue>[a-z0-9.-]+)@(?<currentDigest>sha256:[0-9a-f]{64})"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "The buildkit client library and the daemon image move together: one pull request, one review.",
+      "matchPackageNames": [
+        "github.com/moby/buildkit",
+        "docker.io/moby/buildkit"
+      ],
+      "groupName": "buildkit"
     }
   ],
   "description": [
     "The canonical Renovate configuration is a shared preset — default.json in the limen repository — so every repository inherits it by reference and a fix there reaches all of them without a file being re-seeded. The ref is pinned: the `renovate` rule keeps it at the repository's own limen version (the farcloser/limen pin in aqua.yaml), so the preset moves with the release like every other canonical file. limen itself, the preset's author, reads it from its own default branch. Everything below is the project's own — overrides and additions go here, next to the ref.",
     "forkProcessing: Renovate skips forked repositories by default under an all-repositories App installation, and it skips them before reading any config beyond this file — so the setting cannot live in the shared preset, and cannot live in a renovate.json5 either: only the onboarding config file name, renovate.json, is read through the platform API at that point. Every repository that is a GitHub fork is silently never processed without it.",
     "gitIgnoredAuthors: the update-aqua-checksum workflow pushes a fix-up commit onto Renovate's branches; without this, Renovate treats the branch as human-modified and stops rebasing it. The org's App identity is the org's, so the array stays here (the `renovate` rule maintains it) rather than in the preset.",
-    "customManagers: the guest kernel pin in the Justfile. Renovate proposes the tag bump; guest_kernel_sha256 must be updated by hand in the same pull request (fetch-kernel fails loudly with the actual digest until it is) — the human step is the point: a kernel bump is a reviewed supply-chain change."
+    "customManagers: the pins Renovate's standard managers do not see. The guest kernel tag (a farcloser/ossein-kernel release): Renovate bumps the tag; guest_kernel_sha256 does not follow, because no datasource serves it — `just refresh-pins` takes it from the release's cosign-verified SHA256SUMS and rewrites the Justfile; run it on the Renovate branch and push. The buildkit daemon image, pinned by tag and digest in the Justfile and mirrored as the fallback literal in cmd/ossein/main.go: both files in one manager so one update touches both. The bench images in hack/*.sh and the test image in the Justfile: docker digest pins, moved by Renovate itself."
   ],
   "extends": [
     "github>farcloser/limen#v0.4.0"
