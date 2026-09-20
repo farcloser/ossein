@@ -1,0 +1,15 @@
+# The ossein-kernel release embedded into the ossein binary (pkg/guestartifacts), pinned by
+# digest; fetch-kernel reads it with `limen pins get` (book/tooling.md, "Pinned artifacts
+# beyond aqua"). The digest is the kernel's line in the release's SHA256SUMS, taken only
+# after cosign has proven who signed that manifest: the identity and issuer below are the
+# same ones fetch-kernel verifies with, and the two must move together.
+pins:
+  - name: guest-kernel
+    renovate: github-releases farcloser/ossein-kernel
+    versioning: regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)-ossein\.(?<build>\d+)$
+    version: 7.1.5-ossein.2
+    url: https://github.com/farcloser/ossein-kernel/releases/download/${version}/kernel-arm64
+    verify: cosign-sha256sums https://github.com/farcloser/ossein-kernel/releases/download/${version}/SHA256SUMS https://github.com/farcloser/ossein-kernel/releases/download/${version}/SHA256SUMS.cosign.bundle ^(142371135\+[^@]+@users\.noreply\.github\.com|apostasie@farcloser\.world)$ https://github.com/login/oauth
+    digest:
+      version: 7.1.5-ossein.2
+      sha256: e73700fdcb05673b18bcb7f9cbca2a46b89ad27f9631474c77c707aab4f828c2

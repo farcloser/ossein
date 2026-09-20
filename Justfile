@@ -14,25 +14,23 @@ export GO_CGO := '1'
 # read from the module cache when this was added; re-check on a major bump.
 export LINT_GO_LICENSES_FLAGS := '--ignore=github.com/in-toto/attestation --ignore=github.com/in-toto/in-toto-golang'
 
-# ossein-kernel release embedded into the ossein binary (pkg/guestartifacts);
-# non-semver, distro-kernel style tag. The pinned kernel MUST be built with
-# CONFIG_BLK_DEV_INITRD=y: the guest boots a cpio via rdinit= with no root
-# device, and a kernel without it hangs, surfacing only as a handshake timeout.
-# Bump tag and sha256 together (fetch-kernel prints the real digest on mismatch).
-guest_kernel_repo := "farcloser/ossein-kernel"
-guest_kernel_tag := "7.1.5-ossein.2"
-guest_kernel_sha256 := "e73700fdcb05673b18bcb7f9cbca2a46b89ad27f9631474c77c707aab4f828c2"
+# ossein-kernel release embedded into the ossein binary (pkg/guestartifacts): pinned in
+# pins.yaml (guest-kernel), read inside fetch-kernel with `limen pins get`. The pinned
+# kernel MUST be built with CONFIG_BLK_DEV_INITRD=y: the guest boots a cpio via rdinit=
+# with no root device, and a kernel without it hangs, surfacing only as a handshake timeout.
 # Who must have signed the kernel: a REGEXP over the certificate's SAN, anchored
 # on the GitHub user id. With keyless signing the email claim is mutable account
 # state (the email-privacy toggle flips it between the bare address and the
 # noreply form); the numeric id is not. Anything else fails on purpose. Pinning
 # a release-workflow identity instead would remove this problem.
+# pins.yaml's verify line carries the same identity and issuer for the digest refresh;
+# change both or neither.
 guest_kernel_identity := '^(142371135\+[^@]+@users\.noreply\.github\.com|apostasie@farcloser\.world)$'
 guest_kernel_issuer := "https://github.com/login/oauth"
 
 # buildkit image reference used by `ossein buildkit`, linked into the binary at build time.
-# To bump: pick the release, then re-resolve the digest with
-#   just buildkit-digest v0.33.0
+# Renovate moves tag and digest, here and in cmd/ossein/main.go's fallback literal, in the
+# same pull request as the client module; `just buildkit-digest <tag>` resolves one by hand.
 buildkit_repo := "docker.io/moby/buildkit"
 buildkit_tag := "v0.33.0"
 buildkit_digest := "sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3"
@@ -198,7 +196,9 @@ fetch-kernel:
     #!/usr/bin/env bash
     set -euo pipefail
     dest=pkg/guestartifacts/kernel-arm64
-    base="https://github.com/{{ guest_kernel_repo }}/releases/download/{{ guest_kernel_tag }}"
+    tag="$(limen pins get guest-kernel version)"
+    pinned="$(limen pins get guest-kernel sha256)"
+    base="$(dirname "$(limen pins get guest-kernel url)")"
     tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
     for a in kernel-arm64 SHA256SUMS SHA256SUMS.cosign.bundle; do
         curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o "$tmp/$a" "$base/$a"
@@ -215,14 +215,14 @@ fetch-kernel:
     fi
     # The in-repo digest pin: cosign proves WHO signed, this proves WHICH bytes —
     # a re-published tag or re-signed asset cannot slip through.
-    if [ "$actual" != "{{ guest_kernel_sha256 }}" ]; then
-        echo "kernel digest mismatch: pinned {{ guest_kernel_sha256 }}, got $actual" >&2
-        echo "(bumping the kernel? update guest_kernel_sha256 in the Justfile)" >&2
+    if [ "$actual" != "$pinned" ]; then
+        echo "kernel digest mismatch: pinned $pinned, got $actual" >&2
+        echo "(bumping the kernel? move the pin in pins.yaml and run \`limen pins refresh\`)" >&2
         exit 1
     fi
     mkdir -p "$(dirname "$dest")"
     cp "$tmp/kernel-arm64" "$dest"
-    echo ">> embedded guest kernel {{ guest_kernel_tag }} -> $dest"
+    echo ">> embedded guest kernel $tag -> $dest"
 
 # Build the guest initfs → build/initfs.cpio: cross-compile PID 1 static, build the
 # host-side packaging tool, then pack the binary at /sbin/vminitd (matching the
