@@ -20,7 +20,7 @@
     "customManagers: the guest kernel pin in the Justfile. Renovate proposes the tag bump; guest_kernel_sha256 must be updated by hand in the same pull request (fetch-kernel fails loudly with the actual digest until it is) — the human step is the point: a kernel bump is a reviewed supply-chain change."
   ],
   "extends": [
-    "github>farcloser/limen#v0.4.0"
+    "github>farcloser/limen#v0.5.0"
   ],
   "forkProcessing": "enabled",
   "gitIgnoredAuthors": [
