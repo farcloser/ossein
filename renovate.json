@@ -33,7 +33,7 @@
     "customManagers: the docker digest pins Renovate moves itself. The buildkit daemon image, tag and digest in the Justfile and mirrored as the fallback literal in cmd/ossein/main.go, both files in one manager so one update touches both, grouped with the github.com/moby/buildkit module so client and daemon move in one pull request. The bench images in hack/*.sh and the test image in the Justfile. The guest kernel lives in pins.yaml, which the shared preset watches and the checksum workflow refreshes."
   ],
   "extends": [
-    "github>farcloser/limen#v0.5.1"
+    "github>farcloser/limen#v0.5.2"
   ],
   "forkProcessing": "enabled",
   "gitIgnoredAuthors": [
