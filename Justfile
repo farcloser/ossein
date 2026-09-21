@@ -121,7 +121,7 @@ guest-test dir=(justfile_directory() / "build/guest-tests"):
     RUNNER
     chmod +x {{ dir }}/run.sh
     ./build/ossein run --privileged --no-network -v "{{ dir }}:/t" \
-        docker.io/library/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce /t/run.sh
+        docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 /t/run.sh
 
 # hack/bench is //go:build linux, so the native legs never load it. ./hack/...
 # rather than the one package: whatever lands here next is covered by default.
