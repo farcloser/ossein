@@ -76,91 +76,36 @@ func (c *buildCmd) Run(logger *slog.Logger, level string) error {
 		return err
 	}
 
-	platform := ""
-
-	if c.Platform != "" {
-		if platform, _, err = image.CanonicalPlatform(c.Platform); err != nil {
-			return err
-		}
-	}
-
-	attrs, err := frontendAttrs(
-		filepath.Base(dockerfile),
-		platform,
-		c.Target,
-		c.NoCache,
-		c.Pull,
-		c.BuildArgs,
-		os.LookupEnv,
-	)
+	platform, attrs, err := c.frontend(dockerfile)
 	if err != nil {
 		return err
 	}
 
-	tags, err := normalizeTags(c.Tags)
+	tags, err := c.tags()
 	if err != nil {
 		return err
 	}
 
-	// docker -q prints the image ID whether or not it was tagged. Untagged, a
-	// build here leaves nothing runnable, so printing a digest would hand a
-	// script a reference that `run` cannot resolve — and printing nothing,
-	// the shape this had, is the silent divergence this shim exists to
-	// refuse. Say so instead.
-	if c.Quiet && len(tags) == 0 {
-		return fmt.Errorf(
-			"%w: -q without -t (docker would print an image ID; ossein has nothing runnable to name — add -t)",
-			errUnsupported,
-		)
-	}
-
-	host, err := ensureBuildkit(ctx, level)
+	builder, err := connectBuildkit(ctx, level)
 	if err != nil {
 		return err
-	}
-
-	builder, err := client.New(ctx, host)
-	if err != nil {
-		return fmt.Errorf("connecting to buildkit at %s: %w", host, err)
 	}
 	defer func() { _ = builder.Close() }()
 
-	contextFS, err := fsutil.NewFS(contextDir)
+	opt, err := newSolveOpt(contextDir, dockerfile, attrs)
 	if err != nil {
-		return fmt.Errorf("build context %s: %w", contextDir, err)
-	}
-
-	dockerfileFS, err := fsutil.NewFS(filepath.Dir(dockerfile))
-	if err != nil {
-		return fmt.Errorf("dockerfile dir %s: %w", filepath.Dir(dockerfile), err)
-	}
-
-	opt := client.SolveOpt{
-		Frontend:      frontendDockerfile,
-		FrontendAttrs: attrs,
-		LocalMounts:   map[string]fsutil.FS{localContext: contextFS, localDockerfile: dockerfileFS},
-		// Registry credentials for FROM lines come from docker's credential
-		// store (`docker login`), the same one ossein's pulls consult.
-		Session: []session.Attachable{keychainAuth{}},
+		return err
 	}
 
 	var exportDir string
 
 	if len(tags) > 0 {
-		// The OCI layout is staged next to ossein's other scratch, imported
-		// into the image cache, then dropped: the cache is the destination.
-		exportDir, err = os.MkdirTemp("", "ossein-docker-build-*")
+		exportDir, err = exportOCI(&opt, tags)
 		if err != nil {
-			return fmt.Errorf("staging dir: %w", err)
+			return err
 		}
 
 		defer func() { _ = os.RemoveAll(exportDir) }()
-
-		opt.Exports = []client.ExportEntry{{
-			Type:      client.ExporterOCI,
-			Attrs:     map[string]string{exportTar: exportFalse, exportName: strings.Join(tags, ",")},
-			OutputDir: exportDir,
-		}}
 	}
 
 	resp, err := solve(ctx, builder, opt, c.progressMode())
@@ -177,7 +122,8 @@ func (c *buildCmd) Run(logger *slog.Logger, level string) error {
 		return nil
 	}
 
-	if err := importTags(logger, exportDir, tags, platform); err != nil {
+	err = importTags(logger, exportDir, tags, platform)
+	if err != nil {
 		return err
 	}
 
@@ -186,6 +132,115 @@ func (c *buildCmd) Run(logger *slog.Logger, level string) error {
 	}
 
 	return nil
+}
+
+// connectBuildkit is a client for this directory's builder, started first
+// when none is up.
+func connectBuildkit(ctx context.Context, level string) (*client.Client, error) {
+	host, err := ensureBuildkit(ctx, level)
+	if err != nil {
+		return nil, err
+	}
+
+	builder, err := client.New(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to buildkit at %s: %w", host, err)
+	}
+
+	return builder, nil
+}
+
+// frontend is the canonical platform the build targets (empty: the host) and
+// the Dockerfile frontend's attributes for this invocation.
+func (c *buildCmd) frontend(dockerfile string) (string, map[string]string, error) {
+	platform := ""
+
+	if c.Platform != "" {
+		canonical, _, err := image.CanonicalPlatform(c.Platform)
+		if err != nil {
+			return "", nil, err
+		}
+
+		platform = canonical
+	}
+
+	attrs, err := frontendAttrs(
+		filepath.Base(dockerfile),
+		platform,
+		c.Target,
+		c.NoCache,
+		c.Pull,
+		c.BuildArgs,
+		os.LookupEnv,
+	)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return platform, attrs, nil
+}
+
+// tags is the normalized -t list. docker -q prints the image ID whether or
+// not it was tagged. Untagged, a build here leaves nothing runnable, so
+// printing a digest would hand a script a reference that `run` cannot
+// resolve — and printing nothing is the silent divergence this shim exists
+// to refuse. Say so instead.
+func (c *buildCmd) tags() ([]string, error) {
+	tags, err := normalizeTags(c.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.Quiet && len(tags) == 0 {
+		return nil, fmt.Errorf(
+			"%w: -q without -t (docker would print an image ID; ossein has nothing runnable to name — add -t)",
+			errUnsupported,
+		)
+	}
+
+	return tags, nil
+}
+
+// newSolveOpt is the Dockerfile frontend's solve over the context and the
+// Dockerfile's directory. Registry credentials for FROM lines come from
+// docker's credential store (`docker login`), the same one ossein's pulls
+// consult.
+func newSolveOpt(contextDir, dockerfile string, attrs map[string]string) (client.SolveOpt, error) {
+	contextFS, err := fsutil.NewFS(contextDir)
+	if err != nil {
+		return client.SolveOpt{}, fmt.Errorf("build context %s: %w", contextDir, err)
+	}
+
+	dockerfileFS, err := fsutil.NewFS(filepath.Dir(dockerfile))
+	if err != nil {
+		return client.SolveOpt{}, fmt.Errorf("dockerfile dir %s: %w", filepath.Dir(dockerfile), err)
+	}
+
+	return client.SolveOpt{
+		Frontend:      frontendDockerfile,
+		FrontendAttrs: attrs,
+		LocalMounts:   map[string]fsutil.FS{localContext: contextFS, localDockerfile: dockerfileFS},
+		Session:       []session.Attachable{keychainAuth{}},
+	}, nil
+}
+
+// exportOCI adds an OCI layout export of the build under tags to opt, staged
+// in a fresh directory next to ossein's other scratch, and returns that
+// directory for the caller to remove: the layout is imported into the image
+// cache, then dropped — the cache is the destination.
+func exportOCI(opt *client.SolveOpt, tags []string) (string, error) {
+	dir, err := os.MkdirTemp("", "ossein-docker-build-*")
+	if err != nil {
+		return "", fmt.Errorf("staging dir: %w", err)
+	}
+
+	opt.Exports = []client.ExportEntry{{
+		Type:      client.ExporterOCI,
+		Attrs:     map[string]string{exportTar: exportFalse, exportName: strings.Join(tags, ",")},
+		OutputDir: dir,
+	}}
+
+	return dir, nil
 }
 
 // paths resolves the context directory and Dockerfile to absolute paths and
