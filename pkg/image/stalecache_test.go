@@ -2,6 +2,7 @@
 package image
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -110,7 +111,7 @@ func TestRootfsRecoversFromStaleIndexEntry(t *testing.T) {
 
 	// 5. And it must be the NEW content, not a stale blob resurrected.
 	again := readPin(t, mustRootfsFile(t, newTestImage(t, cache, second, identifier)))
-	if string(healed) != string(again) {
+	if !bytes.Equal(healed, again) {
 		t.Fatal("healed entry is not stable across runs")
 	}
 }

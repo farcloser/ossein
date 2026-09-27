@@ -114,7 +114,7 @@ func build(inPath, out, initPath string) error {
 }
 
 func trimSlash(path string) string {
-	if len(path) > 0 && path[0] == '/' {
+	if path != "" && path[0] == '/' {
 		return path[1:]
 	}
 
