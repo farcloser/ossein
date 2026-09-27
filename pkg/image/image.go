@@ -232,11 +232,8 @@ func CanonicalPlatform(requested string) (platform, arch string, err error) {
 // GC. The codec segment makes a codec change (gzip→zstd) a clean miss rather
 // than serving undecodable bytes.
 func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*Image, error) {
-	switch pull {
-	case PullAlways, PullMissing, PullNever:
-	default:
-		return nil, fmt.Errorf("%w: unknown pull policy %q (valid: %s, %s, %s)",
-			ErrResolve, pull, PullAlways, PullMissing, PullNever)
+	if err := checkPullPolicy(pull); err != nil {
+		return nil, err
 	}
 
 	parsed, err := name.ParseReference(ref)
@@ -249,34 +246,6 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 		return nil, err
 	}
 
-	platKey := platform.String()
-
-	// remoteImage does the actual network resolve, bounded by ctx (captured, so a
-	// lazy re-fetch via resolveSource stays cancellable too). Auth from Docker's
-	// credential store (a `docker login` lifts the anonymous rate limit; falls
-	// back to anonymous, so always safe to pass).
-	remoteImage := func() (v1.Image, *remote.Descriptor, error) {
-		var (
-			desc *remote.Descriptor
-			img  v1.Image
-		)
-
-		desc, err = remote.Get(parsed,
-			remote.WithContext(ctx),
-			remote.WithPlatform(platform),
-			remote.WithAuthFromKeychain(authn.DefaultKeychain),
-		)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%w: resolve %s: %w", ErrResolve, ref, err)
-		}
-
-		if img, err = desc.Image(); err != nil {
-			return nil, nil, fmt.Errorf("%w: image for %s (platform %s): %w", ErrResolve, ref, platKey, err)
-		}
-
-		return img, desc, nil
-	}
-
 	// The store is the resolve cache and the registry is its fetch: a record
 	// enters only through a miss. The image the fetch resolved is kept, so a
 	// run that just went online flattens from it with no second fetch.
@@ -284,68 +253,21 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 
 	online := func() (io.ReadCloser, error) {
 		var (
-			img     v1.Image
-			desc    *remote.Descriptor
-			rec     resolution
-			encoded []byte
+			img    v1.Image
+			record []byte
 		)
 
-		if img, desc, err = remoteImage(); err != nil {
+		if img, record, err = fetchResolution(ctx, parsed, platform, ref); err != nil {
 			return nil, err
-		}
-
-		var index []byte
-		if desc.MediaType.IsIndex() {
-			index = desc.Manifest
-		}
-
-		if rec, err = newResolution(img, index, false); err != nil {
-			return nil, errRecord(ref, err)
-		}
-
-		if encoded, err = json.Marshal(rec); err != nil {
-			return nil, errRecord(ref, err)
 		}
 
 		fetched = img
 
-		return io.NopCloser(bytes.NewReader(encoded)), nil
+		return io.NopCloser(bytes.NewReader(record)), nil
 	}
 
-	refuse := func() (io.ReadCloser, error) {
-		return nil, fmt.Errorf("%w: %q not resolved locally (--pull=never)", ErrResolve, ref)
-	}
-
-	identifier := resolveIdentifier(parsed, platKey)
-
-	fetch := online
-	if pull == PullNever {
-		fetch = refuse
-	}
-
-	if pull == PullAlways {
-		if err = dropRecord(store, identifier, ref); err != nil {
-			return nil, err
-		}
-	}
-
-	res, err := acquireRecord(store, identifier, fetch)
+	res, err := acquireResolution(store, ref, pull, parsed, platform, online)
 	if err != nil {
-		return nil, errRecordOrResolve(ref, err)
-	}
-
-	// A digest-pinned ref names its content itself; the record is only
-	// allowed to agree, and it proves that with bytes, not fields.
-	res, err = trustedRecord(parsed, platform, pull, res)
-	if errors.Is(err, errRecordUnchained) {
-		if err = dropRecord(store, identifier, ref); err != nil {
-			return nil, err
-		}
-
-		if res, err = acquireRecord(store, identifier, online); err != nil {
-			return nil, errRecordOrResolve(ref, err)
-		}
-	} else if err != nil {
 		return nil, err
 	}
 
@@ -364,6 +286,128 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 	}
 
 	return img, nil
+}
+
+// checkPullPolicy refuses any pull value but the three Resolve knows.
+func checkPullPolicy(pull string) error {
+	switch pull {
+	case PullAlways, PullMissing, PullNever:
+		return nil
+	default:
+		return fmt.Errorf("%w: unknown pull policy %q (valid: %s, %s, %s)",
+			ErrResolve, pull, PullAlways, PullMissing, PullNever)
+	}
+}
+
+// fetchRemote does the network resolve, bounded by ctx. Auth comes from
+// Docker's credential store: a `docker login` lifts the anonymous rate limit,
+// and without one it falls back to anonymous, so it is always safe to pass.
+func fetchRemote(
+	ctx context.Context,
+	parsed name.Reference,
+	platform v1.Platform,
+	ref string,
+) (v1.Image, *remote.Descriptor, error) {
+	desc, err := remote.Get(parsed,
+		remote.WithContext(ctx),
+		remote.WithPlatform(platform),
+		remote.WithAuthFromKeychain(authn.DefaultKeychain),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: resolve %s: %w", ErrResolve, ref, err)
+	}
+
+	img, err := desc.Image()
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: image for %s (platform %s): %w", ErrResolve, ref, platform.String(), err)
+	}
+
+	return img, desc, nil
+}
+
+// fetchResolution resolves ref at platform against the registry and encodes
+// the record the store keeps for it. The image comes back beside the record:
+// the caller that just went online flattens from it without a second fetch.
+func fetchResolution(
+	ctx context.Context,
+	parsed name.Reference,
+	platform v1.Platform,
+	ref string,
+) (v1.Image, []byte, error) {
+	img, desc, err := fetchRemote(ctx, parsed, platform, ref)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var index []byte
+	if desc.MediaType.IsIndex() {
+		index = desc.Manifest
+	}
+
+	rec, err := newResolution(img, index, false)
+	if err != nil {
+		return nil, nil, errRecord(ref, err)
+	}
+
+	encoded, err := json.Marshal(rec)
+	if err != nil {
+		return nil, nil, errRecord(ref, err)
+	}
+
+	return img, encoded, nil
+}
+
+// acquireResolution reads ref@platform's record from store under the pull
+// policy: dropped first under always, so the fetch runs; refused on a miss
+// under never; fetched through online otherwise. A digest-pinned ref names
+// its content itself, so its record is only allowed to agree, and proves
+// that with bytes, not fields; one that predates the manifest chain is
+// dropped and fetched once more.
+func acquireResolution(
+	store Cache,
+	ref, pull string,
+	parsed name.Reference,
+	platform v1.Platform,
+	online content.FetchFunc,
+) (*resolution, error) {
+	identifier := resolveIdentifier(parsed, platform.String())
+
+	fetch := online
+	if pull == PullNever {
+		fetch = func() (io.ReadCloser, error) {
+			return nil, fmt.Errorf("%w: %q not resolved locally (--pull=never)", ErrResolve, ref)
+		}
+	}
+
+	if pull == PullAlways {
+		if err := dropRecord(store, identifier, ref); err != nil {
+			return nil, err
+		}
+	}
+
+	res, err := acquireRecord(store, identifier, fetch)
+	if err != nil {
+		return nil, errRecordOrResolve(ref, err)
+	}
+
+	res, err = trustedRecord(parsed, platform, pull, res)
+
+	switch {
+	case err == nil:
+		return res, nil
+	case !errors.Is(err, errRecordUnchained):
+		return nil, err
+	}
+
+	if err = dropRecord(store, identifier, ref); err != nil {
+		return nil, err
+	}
+
+	if res, err = acquireRecord(store, identifier, online); err != nil {
+		return nil, errRecordOrResolve(ref, err)
+	}
+
+	return res, nil
 }
 
 // Import records src — an image that exists only locally (a build's output) —
