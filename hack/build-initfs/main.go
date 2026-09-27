@@ -39,6 +39,10 @@ const (
 	modeReg  = 0o100000
 	modeChar = 0o020000
 
+	// The permission bits the archive gives its directories and device nodes.
+	dirPerm     = 0o755
+	charDevPerm = 0o600
+
 	// Device nodes the archive must carry. /dev/console (char 5,1) is where
 	// the kernel points init's stdio; /dev/null (char 1,3) is what the Go
 	// RUNTIME opens onto fds 0-2 when they arrive closed — and if that open
@@ -133,14 +137,14 @@ type cpio struct {
 
 func newCpio() *cpio { return &cpio{ino: 1} }
 
-func (c *cpio) dir(name string) { c.entry(name, modeDir|0o755, 0, 0, nil) }
+func (c *cpio) dir(name string) { c.entry(name, modeDir|dirPerm, 0, 0, nil) }
 
 func (c *cpio) file(name string, perm uint32, data []byte) {
 	c.entry(name, modeReg|perm, 0, 0, data)
 }
 
 func (c *cpio) charDev(name string, major, minor uint32) {
-	c.entry(name, modeChar|0o600, major, minor, nil)
+	c.entry(name, modeChar|charDevPerm, major, minor, nil)
 }
 
 func (c *cpio) trailer() {

@@ -27,6 +27,9 @@ import (
 	"github.com/farcloser/ossein/third_party/vz"
 )
 
+// bytesPerMiB converts Config.MemoryMiB into the byte count VZ wants.
+const bytesPerMiB = 1024 * 1024
+
 // HostMaxCPUs is every CPU the host has, as far as one guest can use them: the
 // host's logical CPU count, capped at what Virtualization.framework allows.
 // The framework's own maximum is not the host's (64 on an 18-core machine): it
@@ -187,7 +190,7 @@ func New(cfg Config) (*VM, error) {
 		return nil, fmt.Errorf("bootloader: %w", err)
 	}
 
-	vmc, err := vz.NewVirtualMachineConfiguration(boot, cfg.CPUs, cfg.MemoryMiB*1024*1024)
+	vmc, err := vz.NewVirtualMachineConfiguration(boot, cfg.CPUs, cfg.MemoryMiB*bytesPerMiB)
 	if err != nil {
 		return nil, fmt.Errorf("vm configuration: %w", err)
 	}
