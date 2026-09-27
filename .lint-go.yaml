@@ -89,3 +89,10 @@ golangci:
         # Reformatting the vendored fork would make its diff against upstream
         # unreadable, and would be undone on every refresh.
         - third_party/vz
+nilaway:
+  # Informational for now. Of the six reports on this tree, two are fixed in
+  # code; the four left are flows NilAway cannot follow: an argv built by
+  # append, which is never empty; guards behind t.Fatalf or a short-circuit;
+  # and a test passing a nil cache to prove the cache is never touched.
+  # Blocking returns once those are settled.
+  blocking: false

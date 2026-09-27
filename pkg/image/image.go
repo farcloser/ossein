@@ -336,12 +336,8 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 
 	// A digest-pinned ref names its content itself; the record is only
 	// allowed to agree, and it proves that with bytes, not fields.
-	res, reResolve, err := trustedRecord(parsed, platform, pull, res)
-	if err != nil {
-		return nil, err
-	}
-
-	if reResolve {
+	res, err = trustedRecord(parsed, platform, pull, res)
+	if errors.Is(err, errRecordUnchained) {
 		if err = dropRecord(store, identifier, ref); err != nil {
 			return nil, err
 		}
@@ -349,6 +345,8 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 		if res, err = acquireRecord(store, identifier, online); err != nil {
 			return nil, errRecordOrResolve(ref, err)
 		}
+	} else if err != nil {
+		return nil, err
 	}
 
 	hash, err := v1.NewHash(res.Digest)
@@ -493,38 +491,40 @@ func requestedPlatform(platformStr string) (v1.Platform, error) {
 // trustedRecord is the record Resolve may build an Image from. A tag's
 // record is taken as is (a tag can name anything). A digest-pinned ref's
 // record must prove itself against the ref (verifyPinnedRecord): a record
-// that cannot — older than the chain — means resolve once more under
-// missing (reResolve) and a refusal under never; a record whose bytes do
-// not add up was edited, and is refused under either.
+// that cannot — older than the chain — comes back as errRecordUnchained
+// under missing, which the caller answers by resolving once more, and as a
+// refusal under never; a record whose bytes do not add up was edited, and
+// is refused under either.
 func trustedRecord(
 	parsed name.Reference,
 	platform v1.Platform,
 	pull string,
 	res *resolution,
-) (rec *resolution, reResolve bool, err error) {
+) (*resolution, error) {
 	pinned, ok := parsed.(name.Digest)
 	if !ok {
-		return res, false, nil
+		return res, nil
 	}
 
 	verified, err := verifyPinnedRecord(pinned, platform, res)
 
 	switch {
 	case err == nil:
-		return verified, false, nil
+		return verified, nil
 	case errors.Is(err, errRecordUnchained) && pull == PullMissing:
-		return nil, true, nil
+		return nil, err
 	case errors.Is(err, errRecordUnchained):
-		return nil, false, fmt.Errorf("%w: %q was resolved before ossein kept the manifest chain; "+
+		return nil, fmt.Errorf("%w: %q was resolved before ossein kept the manifest chain; "+
 			"re-pull once with --pull=always", ErrResolve, parsed)
 	default:
-		return nil, false, err
+		return nil, err
 	}
 }
 
 // errRecordUnchained marks a record without the manifest chain: written by an
-// ossein that did not keep it. Not an ErrResolve itself — the caller decides
-// whether that is a re-resolve (missing) or a refusal (never).
+// ossein that did not keep it. Not an ErrResolve itself — trustedRecord
+// decides whether that is a re-resolve (missing, returned as is) or a
+// refusal (never, returned as an ErrResolve that does not wrap it).
 var errRecordUnchained = errors.New("resolution record carries no manifest chain")
 
 // errIndexMissingManifest: the cached index does not list the cached manifest

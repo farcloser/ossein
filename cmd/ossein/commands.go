@@ -494,8 +494,11 @@ func (c *runCmd) envVars() ([]string, error) {
 
 func stdinIsPipe() bool {
 	stat, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
 
-	return err == nil && stat.Mode()&os.ModeCharDevice == 0
+	return stat.Mode()&os.ModeCharDevice == 0
 }
 
 // escalateSignals forwards shutdown signals to the guest, docker-style. The
