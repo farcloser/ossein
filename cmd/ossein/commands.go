@@ -326,7 +326,7 @@ func parseEnvFile(path string) ([]string, error) {
 			text = strings.TrimPrefix(text, string([]byte{0xEF, 0xBB, 0xBF})) // strip a leading UTF-8 BOM
 		}
 
-		if len(text) == 0 || text[0] == '#' {
+		if text == "" || text[0] == '#' {
 			continue
 		}
 

@@ -136,7 +136,7 @@ const (
 // memorySpec is docker's --memory grammar (go-units' RAMInBytes): a number,
 // optionally decimal, an optional unit letter, then an optional "i" and/or
 // "b" — so 8g, 8G, 8gb, 8GiB and 1.5g all parse, and every unit is binary.
-var memorySpec = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?) ?([kKmMgGtTpP])?[iI]?[bB]?$`)
+var memorySpec = regexp.MustCompile(`^(\d+(?:\.\d+)?) ?([kKmMgGtTpP])?[iI]?[bB]?$`)
 
 // memoryUnit is the byte multiplier for a memorySpec unit letter: binary,
 // as docker reads every --memory suffix.
