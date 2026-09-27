@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -344,19 +345,9 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 
 	c.CPUs, c.Memory = sizeWholeHost(c.CPUs, c.Memory)
 
-	mounts := make([]container.Mount, 0, len(c.Volume))
+	instanceID := container.NewID()
 
-	for _, raw := range c.Volume {
-		var mount container.Mount
-
-		if mount, err = parseVolume(raw); err != nil {
-			return err
-		}
-
-		mounts = append(mounts, mount)
-	}
-
-	env, err := c.envVars()
+	spec, err := c.runSpec(instanceID)
 	if err != nil {
 		return err
 	}
@@ -373,11 +364,8 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 
 	defer signal.Stop(sigs)
 
-	// Mint the id and drop the pid file BEFORE Boot: a concurrent `ossein gc`
-	// must never see a booting instance (dir without a live pid) as dead and
-	// reap it mid-pull.
-	instanceID := container.NewID()
-
+	// Drop the pid file BEFORE Boot: a concurrent `ossein gc` must never see a
+	// booting instance (dir without a live pid) as dead and reap it mid-pull.
 	dir, err := container.InstanceDir(instanceID)
 	if err != nil {
 		return err
@@ -394,6 +382,43 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 			_ = os.RemoveAll(dir)
 		}
 	}()
+
+	cache, err := image.NewCache()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cache.Close() }()
+
+	inst, _, err := container.Boot(ctx, *art, cache, spec)
+	if err != nil {
+		return err
+	}
+	defer inst.Close(context.Background())
+
+	release := escalateSignals(ctx, sigs, inst, dir)
+	defer release()
+
+	return c.attach(ctx, inst)
+}
+
+// runSpec is the container spec for this invocation: the parsed volumes and
+// environment, the sizing, and the stdio the flags ask for.
+func (c *runCmd) runSpec(instanceID string) (container.RunSpec, error) {
+	mounts := make([]container.Mount, 0, len(c.Volume))
+
+	for _, raw := range c.Volume {
+		mount, err := parseVolume(raw)
+		if err != nil {
+			return container.RunSpec{}, err
+		}
+
+		mounts = append(mounts, mount)
+	}
+
+	env, err := c.envVars()
+	if err != nil {
+		return container.RunSpec{}, err
+	}
 
 	spec := container.RunSpec{
 		InstanceID: instanceID,
@@ -430,22 +455,15 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 		}
 	}
 
-	cache, err := image.NewCache()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = cache.Close() }()
+	return spec, nil
+}
 
-	inst, _, err := container.Boot(ctx, *art, cache, spec)
-	if err != nil {
-		return err
-	}
-	defer inst.Close(context.Background())
-
-	release := escalateSignals(ctx, sigs, inst, dir)
-	defer release()
-
-	if err = inst.StartProcess(ctx); err != nil {
+// attach starts the container process and waits for it, with the terminal
+// raw for the duration when the run is a TTY on a terminal. The wait does
+// not end with ctx: a Ctrl-C is forwarded to the guest (escalateSignals), and
+// the exit code and the output tail still come back.
+func (c *runCmd) attach(ctx context.Context, inst *container.Instance) error {
+	if err := inst.StartProcess(ctx); err != nil {
 		return err
 	}
 
@@ -454,7 +472,7 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 		defer restore()
 	}
 
-	code, err := inst.Wait(context.Background())
+	code, err := inst.Wait(context.WithoutCancel(ctx))
 	if err != nil {
 		return err
 	}
@@ -640,43 +658,9 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// --detach is idempotent per cache: an instance already serving this
-	// project's cache is reused (its BUILDKIT_HOST printed again) rather than
-	// refused, so `eval "$(ossein buildkit --detach)"` twice — or the
-	// docker-shaped front issuing it before every build — never fails on its
-	// own previous success. Only for the default socket: a caller naming a
-	// --sock asked for THAT socket, not whichever one is up.
-	if c.Detach && c.Sock == "" {
-		var done bool
-
-		if done, err = reuseInstance(ctx, logger, cacheDir); done || err != nil {
-			return err
-		}
-	}
-
-	// Fail fast with an actionable message if this project's cache is already
-	// held by a running instance — instead of dying deep inside a detached child
-	// with only a terse log line. (The child still enforces the lock; this is a
-	// courtesy pre-check, so a lost race just falls back to the real error.)
-	busy, err := volume.InUse(cacheDir)
-	if err != nil {
+	done, err := c.preflight(ctx, logger, cacheDir)
+	if done || err != nil {
 		return err
-	} else if busy {
-		return fmt.Errorf(
-			"%w %q — run `ossein stop` first, or use --cache <name> for a separate cache",
-			errCacheBusy,
-			cacheDir,
-		)
-	}
-
-	// A user-supplied socket that something still answers on belongs to a
-	// previous instance (or an unrelated daemon): fail before booting a VM —
-	// ExposeUnix would refuse it anyway, and detach would otherwise print a
-	// BUILDKIT_HOST that points at the wrong listener.
-	if c.Sock != "" {
-		if err = ensureSocketFree(ctx, c.Sock); err != nil {
-			return err
-		}
 	}
 
 	// Detach: re-exec ourselves in the background with a pre-chosen socket
@@ -687,8 +671,20 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 		return c.detach(ctx, logger, art, level, cacheDir, gitignore)
 	}
 
-	// See runCmd.Run: registered alongside the NotifyContext so the escalation
-	// handler can count signals past the first.
+	return c.foreground(ctx, logger, art, cacheDir, gitignore)
+}
+
+// foreground runs the buildkit VM in this process until it ends: the cache
+// volume held, the instance claimed, booted and served.
+func (c *buildkitCmd) foreground(
+	ctx context.Context,
+	logger *slog.Logger,
+	art *container.Artifacts,
+	cacheDir string,
+	gitignore bool,
+) (err error) {
+	// See runCmd.Run: registered before Boot so the escalation handler can
+	// count signals past the first.
 	sigs := make(chan os.Signal, 3)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 
@@ -703,7 +699,7 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	}
 	defer func() { _ = vol.Close() }()
 
-	logger.Info("buildkit cache", "dir", cacheDir, "image", vol.Path)
+	logger.InfoContext(ctx, "buildkit cache", "dir", cacheDir, "image", vol.Path)
 
 	// buildkitd logs logrus-JSON; forward each line back through our slog logger
 	// so its output shares our format, level, and destination. The Flush is
@@ -711,39 +707,10 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	// Close has quiesced the VM (and waitBuildkit has already drained the
 	// relays via Wait) — no relay can Write after Flush.
 	bkLogs := newLogForwarder(logger, "buildkitd")
-	defer bkLogs.Flush()
+	defer bkLogs.Flush() //nolint:contextcheck // buildkitd's lines belong to no request of ours
 
-	// Mint the id (unless the detach parent forced one, sharing its dir) and
-	// drop the pid file BEFORE Boot: a concurrent `ossein gc` must never see a
-	// booting instance (dir without a live pid) as dead and reap it mid-pull.
-	instanceID := c.InstanceID
-	if instanceID == "" {
-		instanceID = container.NewID()
-	} else if err = validateInstanceID(instanceID); err != nil {
-		// The forced id is joined into the state root and the resulting dir is
-		// deferred-RemoveAll'd — an escaping id must never get that far.
-		return err
-	}
-
-	dir, err := container.InstanceDir(instanceID)
+	claimed, err := c.claimInstance(cacheDir)
 	if err != nil {
-		return err
-	}
-
-	if err = writePid(dir, os.Getpid()); err != nil {
-		return err
-	}
-
-	// The socket path is fixed before Boot (the instance dir IS dir: Boot
-	// derives it from the same id) so the record below is complete from the
-	// start — a concurrent `--detach` for this cache then finds the instance
-	// and waits for the socket instead of hitting the lock.
-	hostSock, err := resolveSock(c.Sock, dir)
-	if err != nil {
-		return err
-	}
-
-	if err = writeBuildkitRecord(dir, buildkitRecord{Cache: cacheDir, Sock: hostSock}); err != nil {
 		return err
 	}
 
@@ -751,11 +718,121 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	// the console log survives until teardown has finished.
 	defer func() {
 		if removeInstanceDirOnReturn(err) {
-			_ = os.RemoveAll(dir)
+			_ = os.RemoveAll(claimed.dir)
 		}
 	}()
 
-	spec := container.RunSpec{
+	cache, err := image.NewCache()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cache.Close() }()
+
+	inst, _, err := container.Boot(ctx, *art, cache, c.buildkitSpec(claimed.id, vol.Path, bkLogs))
+	if err != nil {
+		return err
+	}
+	defer inst.Close(context.WithoutCancel(ctx))
+
+	release := escalateSignals(ctx, sigs, inst, claimed.dir)
+	defer release()
+
+	return serveBuildkit(ctx, logger, inst, claimed.sock)
+}
+
+// preflight settles what can be settled before any VM, and reports done when
+// there is nothing left to do. --detach is idempotent per cache: an instance
+// already serving this project's cache is reused (its BUILDKIT_HOST printed
+// again) rather than refused, so `eval "$(ossein buildkit --detach)"` twice —
+// or the docker-shaped front issuing it before every build — never fails on
+// its own previous success. Only for the default socket: a caller naming a
+// --sock asked for THAT socket, not whichever one is up.
+func (c *buildkitCmd) preflight(ctx context.Context, logger *slog.Logger, cacheDir string) (bool, error) {
+	if c.Detach && c.Sock == "" {
+		done, err := reuseInstance(ctx, logger, cacheDir)
+		if done || err != nil {
+			return true, err
+		}
+	}
+
+	// Fail fast with an actionable message if this project's cache is already
+	// held by a running instance — instead of dying deep inside a detached child
+	// with only a terse log line. (The child still enforces the lock; this is a
+	// courtesy pre-check, so a lost race just falls back to the real error.)
+	busy, err := volume.InUse(cacheDir)
+	if err != nil {
+		return true, err
+	}
+
+	if busy {
+		return true, fmt.Errorf(
+			"%w %q — run `ossein stop` first, or use --cache <name> for a separate cache",
+			errCacheBusy,
+			cacheDir,
+		)
+	}
+
+	// A user-supplied socket that something still answers on belongs to a
+	// previous instance (or an unrelated daemon): fail before booting a VM —
+	// ExposeUnix would refuse it anyway, and detach would otherwise print a
+	// BUILDKIT_HOST that points at the wrong listener.
+	if c.Sock != "" {
+		if err = ensureSocketFree(ctx, c.Sock); err != nil {
+			return true, err
+		}
+	}
+
+	return false, nil
+}
+
+// buildkitInstance is where a buildkit instance lives on the host: its id,
+// its state dir, and the socket its BUILDKIT_HOST names.
+type buildkitInstance struct {
+	id, dir, sock string
+}
+
+// claimInstance mints the id (unless the detach parent forced one, sharing
+// its dir) and drops the pid file BEFORE Boot: a concurrent `ossein gc` must
+// never see a booting instance (dir without a live pid) as dead and reap it
+// mid-pull. The socket path is fixed before Boot too (the instance dir IS
+// dir: Boot derives it from the same id), so the record is complete from the
+// start — a concurrent `--detach` for this cache then finds the instance and
+// waits for the socket instead of hitting the lock.
+func (c *buildkitCmd) claimInstance(cacheDir string) (buildkitInstance, error) {
+	instanceID := c.InstanceID
+	if instanceID == "" {
+		instanceID = container.NewID()
+	} else if err := validateInstanceID(instanceID); err != nil {
+		// The forced id is joined into the state root and the resulting dir is
+		// deferred-RemoveAll'd — an escaping id must never get that far.
+		return buildkitInstance{}, err
+	}
+
+	dir, err := container.InstanceDir(instanceID)
+	if err != nil {
+		return buildkitInstance{}, err
+	}
+
+	if err = writePid(dir, os.Getpid()); err != nil {
+		return buildkitInstance{}, err
+	}
+
+	hostSock, err := resolveSock(c.Sock, dir)
+	if err != nil {
+		return buildkitInstance{}, err
+	}
+
+	if err = writeBuildkitRecord(dir, buildkitRecord{Cache: cacheDir, Sock: hostSock}); err != nil {
+		return buildkitInstance{}, err
+	}
+
+	return buildkitInstance{id: instanceID, dir: dir, sock: hostSock}, nil
+}
+
+// buildkitSpec runs buildkitd privileged and on the network, with the cache
+// volume at its data dir and its logs forwarded.
+func (c *buildkitCmd) buildkitSpec(instanceID, volumePath string, logs io.Writer) container.RunSpec {
+	return container.RunSpec{
 		InstanceID: instanceID,
 		Image:      c.Image,
 		Command:    []string{"buildkitd", "--addr", "unix://" + guestBkSock, "--log-format", "json"},
@@ -764,27 +841,16 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 		CPUs:       c.CPUs,
 		MemoryMiB:  c.Memory,
 		ConsoleLog: c.ConsoleLog,
-		Disks:      []container.DiskMount{{ImagePath: vol.Path, GuestPath: buildkitDataDir}},
-		Stdout:     bkLogs,
-		Stderr:     bkLogs,
+		Disks:      []container.DiskMount{{ImagePath: volumePath, GuestPath: buildkitDataDir}},
+		Stdout:     logs,
+		Stderr:     logs,
 	}
+}
 
-	cache, err := image.NewCache()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = cache.Close() }()
-
-	inst, _, err := container.Boot(ctx, *art, cache, spec)
-	if err != nil {
-		return err
-	}
-	defer inst.Close(context.Background())
-
-	release := escalateSignals(ctx, sigs, inst, dir)
-	defer release()
-
-	if err = inst.StartProcess(ctx); err != nil {
+// serveBuildkit starts buildkitd, exposes its socket on hostSock, prints the
+// export line, and waits until the instance ends.
+func serveBuildkit(ctx context.Context, logger *slog.Logger, inst *container.Instance, hostSock string) error {
+	if err := inst.StartProcess(ctx); err != nil {
 		return err
 	}
 
@@ -799,7 +865,7 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	defer cleanup()
 
 	fmt.Fprintf(os.Stdout, "export BUILDKIT_HOST=unix://%s\n", hostSock)
-	logger.Info("buildkit up — Ctrl-C to stop", "sock", hostSock)
+	logger.InfoContext(ctx, "buildkit up — Ctrl-C to stop", "sock", hostSock)
 
 	return waitBuildkit(ctx, inst)
 }
@@ -905,21 +971,8 @@ func (c *buildkitCmd) detach(
 	level, cacheDir string,
 	cacheLocal bool,
 ) error {
-	// Pre-pull in the FOREGROUND: visible progress, and any network-consent
-	// prompt targets a process the user can see. The child then starts warm.
-	cache, err := image.NewCache()
-	if err != nil {
+	if err := prePull(ctx, c.Image); err != nil {
 		return err
-	}
-	defer func() { _ = cache.Close() }()
-
-	img, err := image.Resolve(ctx, cache, c.Image, "", image.PullMissing)
-	if err != nil {
-		return fmt.Errorf("pre-pull %s: %w", c.Image, err)
-	}
-
-	if err = warm(img); err != nil {
-		return fmt.Errorf("pre-pull %s: %w", c.Image, err)
 	}
 
 	// Choose the instance id up front so the backgrounded child and this parent
@@ -952,6 +1005,51 @@ func (c *buildkitCmd) detach(
 
 	child.Stdout = logFile
 	child.Stderr = logFile
+
+	if err = startDetached(child, dir); err != nil {
+		return err
+	}
+
+	logger.InfoContext(ctx, "buildkit starting in background", pidFileName, child.Process.Pid, "log", logPath)
+
+	if err = awaitSocket(ctx, sock, child.Process.Pid, logPath, bkReadyTimeout); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stdout, "export BUILDKIT_HOST=unix://%s\n", sock)
+	logger.InfoContext(ctx, "buildkit ready", logKeyID, instanceID, "stop", "ossein stop "+instanceID)
+
+	return nil
+}
+
+// prePull resolves and warms ref in the FOREGROUND: visible progress, and any
+// network-consent prompt targets a process the user can see. The detached
+// child then starts warm.
+func prePull(ctx context.Context, ref string) error {
+	cache, err := image.NewCache()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cache.Close() }()
+
+	img, err := image.Resolve(ctx, cache, ref, "", image.PullMissing)
+	if err != nil {
+		return fmt.Errorf("pre-pull %s: %w", ref, err)
+	}
+
+	if err = warm(img); err != nil {
+		return fmt.Errorf("pre-pull %s: %w", ref, err)
+	}
+
+	return nil
+}
+
+// startDetached starts child in its own session and records its pid in dir.
+// Without a pid file the background VM would be unmanageable (stop/gc could
+// never find it), so when the pid cannot be written the child is killed and
+// reaped before the error is reported. Otherwise it is reaped whenever it
+// exits.
+func startDetached(child *exec.Cmd, dir string) error {
 	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	if err := child.Start(); err != nil {
@@ -959,24 +1057,13 @@ func (c *buildkitCmd) detach(
 	}
 
 	if err := writePid(dir, child.Process.Pid); err != nil {
-		// Without a pid file the background VM would be unmanageable (stop/gc
-		// could never find it): kill and reap the child before reporting.
 		_ = child.Process.Kill()
 		_ = child.Wait()
 
 		return err
 	}
 
-	go func() { _ = child.Wait() }() // reap if it dies while we poll
-
-	logger.InfoContext(ctx, "buildkit starting in background", pidFileName, child.Process.Pid, "log", logPath)
-
-	if err := awaitSocket(ctx, sock, child.Process.Pid, logPath, bkReadyTimeout); err != nil {
-		return err
-	}
-
-	fmt.Fprintf(os.Stdout, "export BUILDKIT_HOST=unix://%s\n", sock)
-	logger.InfoContext(ctx, "buildkit ready", logKeyID, instanceID, "stop", "ossein stop "+instanceID)
+	go func() { _ = child.Wait() }()
 
 	return nil
 }
@@ -1110,56 +1197,15 @@ func (c *stopCmd) Run(logger *slog.Logger) error {
 		return err
 	}
 
-	// Explicit ids come straight from argv and are joined into state paths:
-	// refuse anything that could resolve outside the state root.
-	for _, target := range c.IDs {
-		if err := validateInstanceID(target); err != nil {
-			return err
-		}
-	}
-
-	explicit := len(c.IDs) > 0
-	targets := c.IDs
-
-	if !explicit {
-		entries, err := os.ReadDir(root)
-		if os.IsNotExist(err) {
-			logger.Info("stop: nothing running")
-
-			return nil
-		}
-
-		if err != nil {
-			return fmt.Errorf("reading state dir: %w", err)
-		}
-
-		for _, entry := range entries {
-			targets = append(targets, entry.Name())
-		}
+	targets, err := c.targets(root)
+	if err != nil {
+		return err
 	}
 
 	stopped := 0
 
 	for _, target := range targets {
-		if explicit {
-			if _, err := os.Stat(filepath.Join(root, target)); errors.Is(err, os.ErrNotExist) {
-				// Still exit 0: stop is idempotent — "not running" is the state
-				// the user asked for; the message flags a likely typo'd id.
-				logger.Info("stop: no such instance", logKeyID, target,
-					"hint", "`ossein stop` with no id stops every instance")
-
-				continue
-			}
-		}
-
-		pid, start, ok := readPid(filepath.Join(root, target, pidFileName))
-		if !ok || !processAlive(pid, start) {
-			continue
-		}
-
-		if terminate(logger, pid, start, c.Grace) {
-			logger.Info("stop: stopped", logKeyID, target, pidFileName, pid)
-
+		if c.stop(logger, root, target) {
 			stopped++
 		}
 	}
@@ -1169,6 +1215,66 @@ func (c *stopCmd) Run(logger *slog.Logger) error {
 	}
 
 	return nil
+}
+
+// targets is the ids named on the command line, or every instance under root
+// when none was; no state root at all is no instance.
+func (c *stopCmd) targets(root string) ([]string, error) {
+	if len(c.IDs) > 0 {
+		// Explicit ids come straight from argv and are joined into state
+		// paths: refuse anything that could resolve outside the state root.
+		for _, target := range c.IDs {
+			if err := validateInstanceID(target); err != nil {
+				return nil, err
+			}
+		}
+
+		return c.IDs, nil
+	}
+
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("reading state dir: %w", err)
+	}
+
+	targets := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		targets = append(targets, entry.Name())
+	}
+
+	return targets, nil
+}
+
+// stop terminates target's recorded process when it is alive, within the
+// grace, and reports whether it did.
+func (c *stopCmd) stop(logger *slog.Logger, root, target string) bool {
+	if len(c.IDs) > 0 {
+		if _, err := os.Stat(filepath.Join(root, target)); errors.Is(err, os.ErrNotExist) {
+			// Not an error: stop is idempotent — "not running" is the state
+			// the user asked for; the message flags a likely typo'd id.
+			logger.Info("stop: no such instance", logKeyID, target,
+				"hint", "`ossein stop` with no id stops every instance")
+
+			return false
+		}
+	}
+
+	pid, start, ok := readPid(filepath.Join(root, target, pidFileName))
+	if !ok || !processAlive(pid, start) {
+		return false
+	}
+
+	if !terminate(logger, pid, start, c.Grace) {
+		return false
+	}
+
+	logger.Info("stop: stopped", logKeyID, target, pidFileName, pid)
+
+	return true
 }
 
 type gcCmd struct {
