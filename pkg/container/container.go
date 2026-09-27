@@ -290,158 +290,109 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	// is the single deliberate exception to completion-shape: it marks t=0
 	// and announces the run parameters before the first potentially slow
 	// stage.
-	bootStart := time.Now()
-	lastLap := bootStart
-	lap := func() (slog.Attr, slog.Attr) {
-		now := time.Now()
-		dur := slog.Duration("dur", now.Sub(lastLap))
-		lastLap = now
+	clock := newStageClock()
 
-		return dur, slog.Duration("at", now.Sub(bootStart))
+	img, rootfsBlob, err := resolveRootfs(ctx, cache, spec, canonPlatform, rosetta, logger, clock)
+	if err != nil {
+		return nil, nil, err
 	}
 
+	inst := &Instance{ID: instanceID, Dir: dir, spec: spec, img: img, rootfsPin: rootfsBlob}
+
+	consoleLog, err := inst.startVM(art, rosetta, logger, clock)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = inst.bootGuest(ctx, logger, clock)
+	if err == nil && rosetta {
+		err = setupRosetta(ctx, inst.agent)
+	}
+
+	if err != nil {
+		// Teardown must run to completion regardless of ctx (it is often
+		// already cancelled — that's why we're failing), so Close uses a
+		// fresh context.
+		inst.Close(context.Background()) //nolint:contextcheck // deliberate teardown context
+
+		return nil, nil, fmt.Errorf(consoleErrFmt, err, consoleLog)
+	}
+
+	stageDur, _ := clock.lap()
+	logger.InfoContext(ctx, "boot complete", stageDur, slog.Duration("total", clock.total()))
+
+	return inst, img, nil
+}
+
+// stageClock times Boot's stages under the convention Boot describes.
+type stageClock struct {
+	start, last time.Time
+}
+
+func newStageClock() *stageClock {
+	now := time.Now()
+
+	return &stageClock{start: now, last: now}
+}
+
+// lap closes a stage: its own cost (dur) and its completion offset from the
+// boot start (at).
+func (c *stageClock) lap() (dur, at slog.Attr) {
+	now := time.Now()
+	dur = slog.Duration("dur", now.Sub(c.last))
+	at = slog.Duration("at", now.Sub(c.start))
+	c.last = now
+
+	return dur, at
+}
+
+// total is the time since the boot started.
+func (c *stageClock) total() time.Duration {
+	return time.Since(c.start)
+}
+
+// resolveRootfs resolves spec's image and pins its flattened rootfs blob. The
+// blob must exist as a complete file BEFORE the VM exists: it is attached as a
+// read-only virtio-blk disk at VM creation (Virtualization.framework has no
+// hot-attach). A warm run pins the cached blob in about a millisecond; a cold
+// pull runs the whole fetch+flatten here, before any VM sits waiting on it —
+// which is why this stage is timed apart from the resolve. The pin holds the
+// blob against cache GC until Close.
+func resolveRootfs(
+	ctx context.Context,
+	cache image.Cache,
+	spec RunSpec,
+	platform string,
+	rosetta bool,
+	logger *slog.Logger,
+	clock *stageClock,
+) (*image.Image, *blobcache.PinnedFile, error) {
 	pull := spec.Pull
 	if pull == "" {
 		pull = image.PullMissing
 	}
 
 	logger.InfoContext(ctx, "resolving image",
-		"image", spec.Image, "platform", canonPlatform, "rosetta", rosetta, "pull", pull)
+		"image", spec.Image, "platform", platform, "rosetta", rosetta, "pull", pull)
 
-	img, err := image.Resolve(ctx, cache, spec.Image, canonPlatform, pull)
+	img, err := image.Resolve(ctx, cache, spec.Image, platform, pull)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	stageDur, stageAt := lap()
+	stageDur, stageAt := clock.lap()
 	logger.InfoContext(ctx, "image resolved",
-		slog.String("digest", img.Digest), slog.String("platform", canonPlatform), stageDur, stageAt)
+		slog.String("digest", img.Digest), slog.String("platform", platform), stageDur, stageAt)
 
-	// The flattened rootfs blob must exist as a complete file BEFORE the VM
-	// exists: it is attached as a read-only virtio-blk disk at VM creation
-	// (Virtualization.framework has no hot-attach). A warm run pins the
-	// cached blob in about a millisecond; a cold pull runs the whole
-	// fetch+flatten here, before any VM sits waiting on it — which is why
-	// this stage is timed apart from the resolve. The pin holds the blob
-	// against cache GC until Close.
 	rootfsBlob, err := img.RootfsFile()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	stageDur, stageAt = lap()
+	stageDur, stageAt = clock.lap()
 	logger.InfoContext(ctx, "rootfs blob pinned", slog.Int64("size_mib", rootfsBlob.Size>>20), stageDur, stageAt)
 
-	cpus := spec.CPUs
-	if cpus == 0 {
-		cpus = defaultCPUs
-	}
-
-	mem := spec.MemoryMiB
-	if mem == 0 {
-		mem = defaultMemoryMiB
-	}
-
-	consoleLog := spec.ConsoleLog
-	if consoleLog == "" {
-		consoleLog = filepath.Join(dir, "console.log")
-	}
-
-	rootfsSizeMiB := rootfsSizeFromMemory(mem)
-
-	// The whole materialization plan rides the kernel cmdline: vminitd mounts
-	// the tmpfs and extracts the blob AT INIT, overlapping the agent
-	// handshake and network setup — the host never issues rootfs mkdir/mount
-	// RPCs, and copyInRootfs merely awaits the result.
-	rootfsPath := guestRootfs(instanceID)
-	rootfsPlan := fmt.Sprintf("%s%s:%s:%s", rootfsPlanParam, rootfsBlobSerial, rootfsPath,
-		strings.Join(rootfsMountOpts(rootfsSizeMiB), ","))
-
-	// Networking is Virtualization.framework's own NAT now: no host-side stack
-	// to start, own or tear down — the VM either has a NIC on Apple's subnet or
-	// it has none.
-	machine, err := vm.New(vmConfig(art, spec, cpus, mem, consoleLog, rosetta, rootfsBlob.Path, rootfsPlan))
-	if err != nil {
-		_ = rootfsBlob.Release()
-
-		return nil, nil, err
-	}
-
-	stageDur, stageAt = lap()
-	logger.InfoContext(ctx, "microVM created",
-		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memory_mib", mem),
-		slog.String("console", consoleLog), stageDur, stageAt)
-
-	if err = machine.Start(); err != nil {
-		return nil, nil, fmt.Errorf(consoleErrFmt, err, consoleLog)
-	}
-
-	inst := &Instance{
-		ID: instanceID, Dir: dir, vm: machine, rootfs: rootfsPath,
-		spec: spec, img: img, rootfsPin: rootfsBlob,
-	}
-	// Teardown must run to completion regardless of ctx (it is often already
-	// cancelled — that's why we're failing), so Close uses a fresh context.
-	fail := func(err error) (*Instance, *image.Image, error) { //nolint:contextcheck // deliberate teardown context
-		inst.Close(context.Background())
-
-		return nil, nil, fmt.Errorf(consoleErrFmt, err, consoleLog)
-	}
-
-	// Control channel. ConnectRetry honors the dial ctx, so cancelling Boot
-	// interrupts the retry loop; guest.Dial's handshake timeout is the overall
-	// patience bound.
-	logger.DebugContext(ctx, "dialing guest agent", "vsock_port", protocol.VsockPort)
-
-	agent, err := guest.Dial(ctx, func(dialCtx context.Context) (net.Conn, error) {
-		return machine.ConnectRetry(dialCtx, protocol.VsockPort, 20*time.Second)
-	})
-	if err != nil {
-		return fail(err)
-	}
-
-	inst.agent = agent
-
-	stageDur, stageAt = lap()
-	logger.InfoContext(ctx, "guest agent up", stageDur, stageAt)
-
-	if err := inst.copyInRootfs(ctx); err != nil {
-		return fail(err)
-	}
-
-	if err := inst.mountDisks(ctx, spec.Disks, logger); err != nil {
-		return fail(err)
-	}
-
-	stageDur, stageAt = lap()
-	logger.InfoContext(ctx, "rootfs extracted", stageDur, stageAt)
-
-	if err := inst.configureLoopback(ctx); err != nil {
-		return fail(err)
-	}
-
-	if spec.Network {
-		netCfg, err := inst.configureGuestNetwork(ctx)
-		if err != nil {
-			return fail(err)
-		}
-
-		stageDur, stageAt = lap()
-		logger.InfoContext(ctx, "guest network up", slog.String("cidr", netCfg.CIDR),
-			slog.String("gateway", netCfg.Gateway), slog.Any("dns", netCfg.Nameservers),
-			stageDur, stageAt)
-	}
-
-	if rosetta {
-		if err := setupRosetta(ctx, agent); err != nil {
-			return fail(err)
-		}
-	}
-
-	stageDur, _ = lap()
-	logger.InfoContext(ctx, "boot complete", stageDur, slog.Duration("total", time.Since(bootStart)))
-
-	return inst, img, nil
+	return img, rootfsBlob, nil
 }
 
 // vmConfig assembles the vz configuration from the run spec and resolved
@@ -565,70 +516,16 @@ func (i *Instance) StartProcess(ctx context.Context) error {
 	}
 
 	// Host-side stdio listeners must exist before CreateProcess: the guest
-	// connects out to them. Track them so every error path below closes what
-	// was already opened — the ports are fixed, so a leaked listener would
-	// poison any retry on a still-live instance.
-	stdio := guest.StdioPorts{}
-
-	var (
-		relays    []func()
-		listeners []net.Listener
-	)
-
-	closeAll := func() {
-		for _, l := range listeners {
-			_ = l.Close()
-		}
+	// connects out to them. The stdin relay among them is detached from the
+	// RPC ctx by design (see wireStdio).
+	wiring, err := i.wireStdio() //nolint:contextcheck // the stdin relay outlives any request
+	if err != nil {
+		return err
 	}
 
-	if i.spec.Stdin != nil {
-		listener, err := i.vm.Listen(portStdin)
-		if err != nil {
-			return err
-		}
-
-		listeners = append(listeners, listener)
-		port := portStdin
-		stdio.Stdin = &port
-
-		// The stdin relay is detached from the RPC ctx by design: host stdin
-		// may outlive any request, and the guest-side close gets its own
-		// deadline inside the relay.
-		relays = append(relays, i.stdinRelay(listener)) //nolint:contextcheck // deliberate: see comment
-	}
-
-	if i.spec.Stdout != nil {
-		listener, err := i.vm.Listen(portStdout)
-		if err != nil {
-			closeAll()
-
-			return err
-		}
-
-		listeners = append(listeners, listener)
-		port := portStdout
-		stdio.Stdout = &port
-
-		relays = append(relays, i.outputRelay(listener, i.spec.Stdout))
-	}
-
-	if i.spec.Stderr != nil && !i.spec.TTY {
-		listener, err := i.vm.Listen(portStderr)
-		if err != nil {
-			closeAll()
-
-			return err
-		}
-
-		listeners = append(listeners, listener)
-		port := portStderr
-		stdio.Stderr = &port
-
-		relays = append(relays, i.outputRelay(listener, i.spec.Stderr))
-	}
-
-	if err := i.agent.CreateProcess(ctx, i.ID, specJSON, stdio); err != nil {
-		closeAll()
+	err = i.agent.CreateProcess(ctx, i.ID, specJSON, wiring.ports)
+	if err != nil {
+		wiring.close()
 
 		return err
 	}
@@ -638,17 +535,32 @@ func (i *Instance) StartProcess(ctx context.Context) error {
 	// Add happens here — before any goroutine and before StartProcess can
 	// return — so a CreateProcess failure leaves outRelays untouched and Wait
 	// never blocks on relays that were never armed.
-	i.outRelays.Add(len(relays))
+	i.outRelays.Add(len(wiring.relays))
 
-	for _, relay := range relays {
+	for _, relay := range wiring.relays {
 		go relay()
 	}
 
-	if _, err := i.agent.StartProcess(ctx, i.ID); err != nil {
-		return err
-	}
+	_, err = i.agent.StartProcess(ctx, i.ID)
 
-	return nil
+	return err
+}
+
+// stdioWiring is the host side of a process's stdio: the ports the guest
+// dials, the listeners behind them, and the relays to arm once the process
+// exists.
+type stdioWiring struct {
+	ports     guest.StdioPorts
+	listeners []net.Listener
+	relays    []func()
+}
+
+// close closes every listener opened so far: the ports are fixed, so a
+// leaked listener would poison any retry on a still-live instance.
+func (w *stdioWiring) close() {
+	for _, listener := range w.listeners {
+		_ = listener.Close()
+	}
 }
 
 // Wait blocks until the init process exits, drains the stdout/stderr relays,
@@ -715,32 +627,11 @@ func (i *Instance) ExposeUnix(ctx context.Context, containerPath, hostPath strin
 		_ = i.agent.StopVsockProxy(stopCtx, proxyID)
 	}
 
-	// Clear a stale socket file, but never hijack a live one: if something
-	// still answers on it, the caller pointed two instances at one path. Only
-	// two outcomes mean "free": no file (ENOENT) or a file nothing listens on
-	// (ECONNREFUSED). Anything else — a cancelled ctx, EACCES, ENFILE — is NOT
-	// evidence the socket is dead, and removing it on such an error would
-	// unlink another live instance's endpoint out from under its clients.
-	probe := net.Dialer{Timeout: time.Second}
-
-	conn, err := probe.DialContext(ctx, "unix", hostPath)
-
-	switch {
-	case err == nil:
-		_ = conn.Close()
-
+	if err := claimHostSocket(ctx, hostPath); err != nil {
 		stopProxy()
 
-		return nil, fmt.Errorf("%w: %s", ErrSocketInUse, hostPath)
-	case errors.Is(err, fs.ErrNotExist), errors.Is(err, unix.ECONNREFUSED):
-		// Free: nothing there, or a stale file left by a dead process.
-	default:
-		stopProxy()
-
-		return nil, fmt.Errorf("probing host socket %s: %w", hostPath, err)
+		return nil, err
 	}
-
-	_ = os.Remove(hostPath)
 
 	var listenCfg net.ListenConfig
 
@@ -751,27 +642,7 @@ func (i *Instance) ExposeUnix(ctx context.Context, containerPath, hostPath strin
 		return nil, fmt.Errorf("host socket %s: %w", hostPath, err)
 	}
 
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return // listener closed by the closer below
-			}
-
-			go func() {
-				defer func() { _ = conn.Close() }()
-
-				gconn, err := i.vm.Connect(port)
-				if err != nil {
-					return
-				}
-
-				defer func() { _ = gconn.Close() }()
-
-				bidiPipe(conn, gconn)
-			}()
-		}
-	}()
+	go i.serveProxy(listener, port)
 
 	// The closer outlives the ExposeUnix ctx by design (teardown must run
 	// even after the caller's ctx died), hence its own short deadline.
@@ -783,49 +654,41 @@ func (i *Instance) ExposeUnix(ctx context.Context, containerPath, hostPath strin
 	}, nil
 }
 
+// claimHostSocket clears a stale socket file at hostPath, but never hijacks a
+// live one: if something still answers on it, the caller pointed two
+// instances at one path. Only two outcomes mean "free": no file (ENOENT) or a
+// file nothing listens on (ECONNREFUSED). Anything else — a cancelled ctx,
+// EACCES, ENFILE — is NOT evidence the socket is dead, and removing it on
+// such an error would unlink another live instance's endpoint out from under
+// its clients.
+func claimHostSocket(ctx context.Context, hostPath string) error {
+	probe := net.Dialer{Timeout: time.Second}
+
+	conn, err := probe.DialContext(ctx, "unix", hostPath)
+
+	switch {
+	case err == nil:
+		_ = conn.Close()
+
+		return fmt.Errorf("%w: %s", ErrSocketInUse, hostPath)
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, unix.ECONNREFUSED):
+		// Free: nothing there, or a stale file left by a dead process.
+		_ = os.Remove(hostPath)
+
+		return nil
+	default:
+		return fmt.Errorf("probing host socket %s: %w", hostPath, err)
+	}
+}
+
 // Close tears everything down: VM first (kills all guest state), then the
 // host-side network stack.
 func (i *Instance) Close(ctx context.Context) {
 	var flushDur, agentDur, vmDur time.Duration
 
 	if i.agent != nil {
-		// Persist cache disks before the VM dies: sync flushes the guest page
-		// cache to the virtio-blk devices, then unmounting each detaches ext4
-		// cleanly so vm.Stop's flush carries the writes through to the host image.
-		// Without this, buildkit's cache writes are lost with the tmpfs VM. These
-		// are the ONLY barrier protecting durable data, so failures are loud.
 		if len(i.mountedDisks) > 0 {
-			// Bounded: every caller passes context.Background(), and an
-			// unbounded flush turns a wedged guest (D-state sync(2) on
-			// virtio-blk) into a hang nothing but an external SIGKILL ends —
-			// a library caller just hangs. Generous rather than snappy,
-			// matching `ossein stop`'s default grace: this is the only
-			// barrier protecting durable data, and a real flush of a
-			// gigabyte-dirty cache is allowed to be slow.
-			flushCtx, cancelFlush := context.WithTimeout(ctx, closeFlushTimeout)
-			defer cancelFlush()
-
-			flushStart := time.Now()
-
-			if err := i.agent.Sync(flushCtx); err != nil {
-				slog.Default().WarnContext(ctx, "guest sync failed; cache disk writes may be lost",
-					logKeyInstance, i.ID, logKeyErr, err)
-			}
-
-			for _, mnt := range i.mountedDisks {
-				err := i.agent.Umount(flushCtx, mnt)
-				if err != nil {
-					// One retry: buildkitd may still be releasing the mount.
-					err = i.agent.Umount(flushCtx, mnt)
-				}
-
-				if err != nil {
-					slog.Default().WarnContext(ctx, "cache disk unmount failed; image may be torn mid-write",
-						logKeyInstance, i.ID, "mount", mnt, logKeyErr, err)
-				}
-			}
-
-			flushDur = time.Since(flushStart)
+			flushDur = i.flushDisks(ctx)
 		}
 
 		agentStart := time.Now()
@@ -863,6 +726,234 @@ func (i *Instance) Close(ctx context.Context) {
 		slog.Duration("dur", flushDur+agentDur+vmDur),
 		slog.Duration("cache_flush", flushDur), slog.Duration("agent_close", agentDur),
 		slog.Duration("vm_stop", vmDur))
+}
+
+// startVM sizes and creates the instance's microVM, with the pinned rootfs
+// blob attached and its materialization plan on the kernel cmdline, and
+// starts it. It returns the console log path every later boot error names.
+func (i *Instance) startVM(art Artifacts, rosetta bool, logger *slog.Logger, clock *stageClock) (string, error) {
+	spec := i.spec
+
+	cpus := spec.CPUs
+	if cpus == 0 {
+		cpus = defaultCPUs
+	}
+
+	mem := spec.MemoryMiB
+	if mem == 0 {
+		mem = defaultMemoryMiB
+	}
+
+	consoleLog := spec.ConsoleLog
+	if consoleLog == "" {
+		consoleLog = filepath.Join(i.Dir, "console.log")
+	}
+
+	// The whole materialization plan rides the kernel cmdline: vminitd mounts
+	// the tmpfs and extracts the blob AT INIT, overlapping the agent
+	// handshake and network setup — the host never issues rootfs mkdir/mount
+	// RPCs, and copyInRootfs merely awaits the result.
+	i.rootfs = guestRootfs(i.ID)
+	rootfsPlan := fmt.Sprintf("%s%s:%s:%s", rootfsPlanParam, rootfsBlobSerial, i.rootfs,
+		strings.Join(rootfsMountOpts(rootfsSizeFromMemory(mem)), ","))
+
+	// Networking is Virtualization.framework's own NAT now: no host-side stack
+	// to start, own or tear down — the VM either has a NIC on Apple's subnet or
+	// it has none.
+	machine, err := vm.New(vmConfig(art, spec, cpus, mem, consoleLog, rosetta, i.rootfsPin.Path, rootfsPlan))
+	if err != nil {
+		_ = i.rootfsPin.Release()
+
+		return "", err
+	}
+
+	stageDur, stageAt := clock.lap()
+	logger.Info("microVM created",
+		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memory_mib", mem),
+		slog.String("console", consoleLog), stageDur, stageAt)
+
+	err = machine.Start()
+	if err != nil {
+		return "", fmt.Errorf(consoleErrFmt, err, consoleLog)
+	}
+
+	i.vm = machine
+
+	return consoleLog, nil
+}
+
+// bootGuest brings the guest up behind the started VM: the agent handshake,
+// the rootfs vminitd materializes on its own, the cache disks, loopback, and
+// the network when the spec asks for it.
+func (i *Instance) bootGuest(ctx context.Context, logger *slog.Logger, clock *stageClock) error {
+	// Control channel. ConnectRetry honors the dial ctx, so cancelling Boot
+	// interrupts the retry loop; guest.Dial's handshake timeout is the overall
+	// patience bound.
+	logger.DebugContext(ctx, "dialing guest agent", "vsock_port", protocol.VsockPort)
+
+	agent, err := guest.Dial(ctx, func(dialCtx context.Context) (net.Conn, error) {
+		return i.vm.ConnectRetry(dialCtx, protocol.VsockPort, 20*time.Second)
+	})
+	if err != nil {
+		return err
+	}
+
+	i.agent = agent
+
+	stageDur, stageAt := clock.lap()
+	logger.InfoContext(ctx, "guest agent up", stageDur, stageAt)
+
+	err = i.copyInRootfs(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = i.mountDisks(ctx, i.spec.Disks, logger)
+	if err != nil {
+		return err
+	}
+
+	stageDur, stageAt = clock.lap()
+	logger.InfoContext(ctx, "rootfs extracted", stageDur, stageAt)
+
+	err = i.configureLoopback(ctx)
+	if err != nil {
+		return err
+	}
+
+	if i.spec.Network {
+		var netCfg guestNetwork
+
+		netCfg, err = i.configureGuestNetwork(ctx)
+		if err != nil {
+			return err
+		}
+
+		stageDur, stageAt = clock.lap()
+		logger.InfoContext(ctx, "guest network up", slog.String("cidr", netCfg.CIDR),
+			slog.String("gateway", netCfg.Gateway), slog.Any("dns", netCfg.Nameservers),
+			stageDur, stageAt)
+	}
+
+	return nil
+}
+
+// wireStdio opens a host listener for each stream the spec wires. On error,
+// what was already opened is closed.
+func (i *Instance) wireStdio() (*stdioWiring, error) {
+	wiring := &stdioWiring{}
+
+	if i.spec.Stdin != nil {
+		listener, err := i.vm.Listen(portStdin)
+		if err != nil {
+			return nil, err
+		}
+
+		wiring.listeners = append(wiring.listeners, listener)
+		port := portStdin
+		wiring.ports.Stdin = &port
+
+		// The stdin relay is detached from the RPC ctx by design: host stdin
+		// may outlive any request, and the guest-side close gets its own
+		// deadline inside the relay.
+		wiring.relays = append(wiring.relays, i.stdinRelay(listener))
+	}
+
+	if i.spec.Stdout != nil {
+		listener, err := i.vm.Listen(portStdout)
+		if err != nil {
+			wiring.close()
+
+			return nil, err
+		}
+
+		wiring.listeners = append(wiring.listeners, listener)
+		port := portStdout
+		wiring.ports.Stdout = &port
+
+		wiring.relays = append(wiring.relays, i.outputRelay(listener, i.spec.Stdout))
+	}
+
+	if i.spec.Stderr != nil && !i.spec.TTY {
+		listener, err := i.vm.Listen(portStderr)
+		if err != nil {
+			wiring.close()
+
+			return nil, err
+		}
+
+		wiring.listeners = append(wiring.listeners, listener)
+		port := portStderr
+		wiring.ports.Stderr = &port
+
+		wiring.relays = append(wiring.relays, i.outputRelay(listener, i.spec.Stderr))
+	}
+
+	return wiring, nil
+}
+
+// serveProxy accepts on the host listener until ExposeUnix's closer closes
+// it, piping each connection to the guest's vsock port for the proxy.
+func (i *Instance) serveProxy(listener net.Listener, port uint32) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+
+		go func() {
+			defer func() { _ = conn.Close() }()
+
+			gconn, err := i.vm.Connect(port)
+			if err != nil {
+				return
+			}
+
+			defer func() { _ = gconn.Close() }()
+
+			bidiPipe(conn, gconn)
+		}()
+	}
+}
+
+// flushDisks persists the cache disks before the VM dies: sync flushes the
+// guest page cache to the virtio-blk devices, then unmounting each detaches
+// ext4 cleanly so vm.Stop's flush carries the writes through to the host
+// image. Without this, buildkit's cache writes are lost with the tmpfs VM.
+// These are the ONLY barrier protecting durable data, so failures are loud.
+// It returns how long the flush took.
+//
+// Bounded: every caller of Close passes context.Background(), and an
+// unbounded flush turns a wedged guest (D-state sync(2) on virtio-blk) into a
+// hang nothing but an external SIGKILL ends — a library caller just hangs.
+// Generous rather than snappy, matching `ossein stop`'s default grace: this
+// is the only barrier protecting durable data, and a real flush of a
+// gigabyte-dirty cache is allowed to be slow.
+func (i *Instance) flushDisks(ctx context.Context) time.Duration {
+	flushCtx, cancelFlush := context.WithTimeout(ctx, closeFlushTimeout)
+	defer cancelFlush()
+
+	flushStart := time.Now()
+
+	if err := i.agent.Sync(flushCtx); err != nil {
+		slog.Default().WarnContext(ctx, "guest sync failed; cache disk writes may be lost",
+			logKeyInstance, i.ID, logKeyErr, err)
+	}
+
+	for _, mnt := range i.mountedDisks {
+		err := i.agent.Umount(flushCtx, mnt)
+		if err != nil {
+			// One retry: buildkitd may still be releasing the mount.
+			err = i.agent.Umount(flushCtx, mnt)
+		}
+
+		if err != nil {
+			slog.Default().WarnContext(ctx, "cache disk unmount failed; image may be torn mid-write",
+				logKeyInstance, i.ID, "mount", mnt, logKeyErr, err)
+		}
+	}
+
+	return time.Since(flushStart)
 }
 
 // buildOCISpec assembles and marshals the container's OCI runtime spec from
