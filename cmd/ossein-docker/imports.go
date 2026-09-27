@@ -102,29 +102,15 @@ func selectImage(idx v1.ImageIndex, want v1.Platform) (v1.Image, error) {
 		}
 
 		if desc.MediaType.IsIndex() {
-			child, err := idx.ImageIndex(desc.Digest)
-			if err != nil {
-				return nil, fmt.Errorf("reading nested index %s: %w", desc.Digest, err)
-			}
-
-			img, err := selectImage(child, want)
-			if err == nil {
-				return img, nil
-			}
-
+			img, err := selectNested(idx, desc.Digest, want)
 			if !errors.Is(err, errNoImage) {
-				return nil, err
+				return img, err
 			}
 
 			continue
 		}
 
-		if !desc.MediaType.IsImage() {
-			continue
-		}
-
-		if desc.Platform != nil &&
-			(desc.Platform.OS != want.OS || desc.Platform.Architecture != want.Architecture) {
+		if !desc.MediaType.IsImage() || !platformMatches(desc.Platform, want) {
 			continue
 		}
 
@@ -137,6 +123,23 @@ func selectImage(idx v1.ImageIndex, want v1.Platform) (v1.Image, error) {
 	}
 
 	return nil, fmt.Errorf("%w (%s/%s)", errNoImage, want.OS, want.Architecture)
+}
+
+// selectNested looks for the image in the index nested at dgst; errNoImage
+// when it has none, so the caller moves on to the next manifest.
+func selectNested(idx v1.ImageIndex, dgst v1.Hash, want v1.Platform) (v1.Image, error) {
+	child, err := idx.ImageIndex(dgst)
+	if err != nil {
+		return nil, fmt.Errorf("reading nested index %s: %w", dgst, err)
+	}
+
+	return selectImage(child, want)
+}
+
+// platformMatches takes a manifest without a platform (a single-platform
+// export) as the build's; otherwise its OS and architecture must be want's.
+func platformMatches(have *v1.Platform, want v1.Platform) bool {
+	return have == nil || (have.OS == want.OS && have.Architecture == want.Architecture)
 }
 
 // hostArch is the architecture a platform-less build targets: ossein runs on

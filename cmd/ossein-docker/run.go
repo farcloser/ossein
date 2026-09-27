@@ -52,41 +52,18 @@ func (c *runCmd) Run(level string) error {
 
 // osseinArgs is the `ossein run` argument vector for this invocation.
 func (c *runCmd) osseinArgs() ([]string, error) {
-	args := []string{"run"}
-
-	// Always sized explicitly: cli.WholeHost is what docker means by no
-	// --cpus / --memory at all.
-	var cpus, memory uint64 = cli.WholeHost, cli.WholeHost
-
-	if c.CPUs != "" {
-		parsed, err := parseCPUs(c.CPUs)
-		if err != nil {
-			return nil, err
-		}
-
-		cpus = parsed
+	cpus, memory, err := c.sizing()
+	if err != nil {
+		return nil, err
 	}
 
-	if c.Memory != "" {
-		parsed, err := parseMemory(c.Memory)
-		if err != nil {
-			return nil, err
-		}
-
-		memory = parsed
+	network, err := c.networkFlags()
+	if err != nil {
+		return nil, err
 	}
 
-	args = append(args, "--cpus", strconv.FormatUint(cpus, decimal), "--memory", cli.FormatSize(memory))
-
-	switch c.Network {
-	case "", "host", "bridge", "default":
-		// ossein's default: outbound networking. docker's named networks have
-		// no equivalent; host/bridge/default all mean "networked".
-	case "none":
-		args = append(args, "--no-network")
-	default:
-		return nil, fmt.Errorf("%w: --network %q (only none, host, bridge, default)", errUnsupported, c.Network)
-	}
+	args := []string{"run", "--cpus", strconv.FormatUint(cpus, decimal), "--memory", cli.FormatSize(memory)}
+	args = append(args, network...)
 
 	for _, toggle := range []struct {
 		flag string
@@ -126,6 +103,42 @@ func (c *runCmd) osseinArgs() ([]string, error) {
 	args = append(args, "--", c.Image)
 
 	return append(args, c.Command...), nil
+}
+
+// sizing is the --cpus and --memory to pass ossein. Always explicit:
+// cli.WholeHost is what docker means by no --cpus / --memory at all.
+func (c *runCmd) sizing() (cpus, memory uint64, err error) {
+	cpus, memory = cli.WholeHost, cli.WholeHost
+
+	if c.CPUs != "" {
+		cpus, err = parseCPUs(c.CPUs)
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+
+	if c.Memory != "" {
+		memory, err = parseMemory(c.Memory)
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+
+	return cpus, memory, nil
+}
+
+// networkFlags maps docker's --network onto ossein's flags. Outbound
+// networking is ossein's default, and docker's named networks have no
+// equivalent: host, bridge and default all mean "networked".
+func (c *runCmd) networkFlags() ([]string, error) {
+	switch c.Network {
+	case "", "host", "bridge", "default":
+		return nil, nil
+	case "none":
+		return []string{"--no-network"}, nil
+	default:
+		return nil, fmt.Errorf("%w: --network %q (only none, host, bridge, default)", errUnsupported, c.Network)
+	}
 }
 
 const (
