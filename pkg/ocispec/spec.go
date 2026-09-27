@@ -178,17 +178,7 @@ func Marshal(spec *specs.Spec) ([]byte, error) {
 		return nil, fmt.Errorf("re-parsing oci spec: %w", err)
 	}
 
-	if linux, ok := doc["linux"].(map[string]any); ok {
-		if namespaces, ok := linux["namespaces"].([]any); ok {
-			for _, entry := range namespaces {
-				if nsMap, ok := entry.(map[string]any); ok {
-					if _, has := nsMap["path"]; !has {
-						nsMap["path"] = ""
-					}
-				}
-			}
-		}
-	}
+	fillNamespacePaths(doc)
 
 	patched, err := json.Marshal(doc)
 	if err != nil {
@@ -196,6 +186,31 @@ func Marshal(spec *specs.Spec) ([]byte, error) {
 	}
 
 	return patched, nil
+}
+
+// fillNamespacePaths gives every linux.namespaces entry of the decoded spec a
+// "path" key, empty where it had none.
+func fillNamespacePaths(doc map[string]any) {
+	linux, isObject := doc["linux"].(map[string]any)
+	if !isObject {
+		return
+	}
+
+	namespaces, isList := linux["namespaces"].([]any)
+	if !isList {
+		return
+	}
+
+	for _, entry := range namespaces {
+		namespace, isNamespace := entry.(map[string]any)
+		if !isNamespace {
+			continue
+		}
+
+		if _, has := namespace["path"]; !has {
+			namespace["path"] = ""
+		}
+	}
 }
 
 // parseUser handles numeric "uid[:gid]"; empty means root. Name-based users
