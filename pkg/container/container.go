@@ -326,7 +326,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, stageAt = lap()
-	logger.InfoContext(ctx, "rootfs blob pinned", slog.Int64("sizeMiB", rootfsBlob.Size>>20), stageDur, stageAt)
+	logger.InfoContext(ctx, "rootfs blob pinned", slog.Int64("size_mib", rootfsBlob.Size>>20), stageDur, stageAt)
 
 	cpus := spec.CPUs
 	if cpus == 0 {
@@ -365,7 +365,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 
 	stageDur, stageAt = lap()
 	logger.InfoContext(ctx, "microVM created",
-		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memoryMiB", mem),
+		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memory_mib", mem),
 		slog.String("console", consoleLog), stageDur, stageAt)
 
 	if err = machine.Start(); err != nil {
@@ -387,7 +387,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	// Control channel. ConnectRetry honors the dial ctx, so cancelling Boot
 	// interrupts the retry loop; guest.Dial's handshake timeout is the overall
 	// patience bound.
-	logger.DebugContext(ctx, "dialing guest agent", "vsockPort", protocol.VsockPort)
+	logger.DebugContext(ctx, "dialing guest agent", "vsock_port", protocol.VsockPort)
 
 	agent, err := guest.Dial(ctx, func(dialCtx context.Context) (net.Conn, error) {
 		return machine.ConnectRetry(dialCtx, protocol.VsockPort, 20*time.Second)
