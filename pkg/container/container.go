@@ -367,7 +367,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memoryMiB", mem),
 		slog.String("console", consoleLog), stageDur, stageAt)
 
-	if err := machine.Start(); err != nil {
+	if err = machine.Start(); err != nil {
 		return nil, nil, fmt.Errorf(consoleErrFmt, err, consoleLog)
 	}
 
@@ -521,7 +521,7 @@ func Doctor(ctx context.Context, art Artifacts, consoleLog string) error {
 		return err
 	}
 
-	if err := machine.Start(); err != nil {
+	if err = machine.Start(); err != nil {
 		return fmt.Errorf(consoleErrFmt, err, consoleLog)
 	}
 	defer func() { _ = machine.Stop() }()

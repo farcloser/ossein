@@ -256,18 +256,18 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 	// credential store (a `docker login` lifts the anonymous rate limit; falls
 	// back to anonymous, so always safe to pass).
 	remoteImage := func() (v1.Image, *remote.Descriptor, error) {
-		desc, err := remote.Get(parsed,
+		desc, getErr := remote.Get(parsed,
 			remote.WithContext(ctx),
 			remote.WithPlatform(platform),
 			remote.WithAuthFromKeychain(authn.DefaultKeychain),
 		)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%w: resolve %s: %w", ErrResolve, ref, err)
+		if getErr != nil {
+			return nil, nil, fmt.Errorf("%w: resolve %s: %w", ErrResolve, ref, getErr)
 		}
 
-		img, err := desc.Image()
-		if err != nil {
-			return nil, nil, fmt.Errorf("%w: image for %s (platform %s): %w", ErrResolve, ref, platKey, err)
+		img, getErr := desc.Image()
+		if getErr != nil {
+			return nil, nil, fmt.Errorf("%w: image for %s (platform %s): %w", ErrResolve, ref, platKey, getErr)
 		}
 
 		return img, desc, nil
@@ -279,9 +279,9 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 	var fetched v1.Image
 
 	online := func() (io.ReadCloser, error) {
-		img, desc, err := remoteImage()
-		if err != nil {
-			return nil, err
+		img, desc, fetchErr := remoteImage()
+		if fetchErr != nil {
+			return nil, fetchErr
 		}
 
 		var index []byte
@@ -289,14 +289,14 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 			index = desc.Manifest
 		}
 
-		rec, err := newResolution(img, index, false)
-		if err != nil {
-			return nil, errRecord(ref, err)
+		rec, fetchErr := newResolution(img, index, false)
+		if fetchErr != nil {
+			return nil, errRecord(ref, fetchErr)
 		}
 
-		encoded, err := json.Marshal(rec)
-		if err != nil {
-			return nil, errRecord(ref, err)
+		encoded, fetchErr := json.Marshal(rec)
+		if fetchErr != nil {
+			return nil, errRecord(ref, fetchErr)
 		}
 
 		fetched = img
@@ -316,7 +316,7 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 	}
 
 	if pull == PullAlways {
-		if err := dropRecord(store, identifier, ref); err != nil {
+		if err = dropRecord(store, identifier, ref); err != nil {
 			return nil, err
 		}
 	}
@@ -334,7 +334,7 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 	}
 
 	if reResolve {
-		if err := dropRecord(store, identifier, ref); err != nil {
+		if err = dropRecord(store, identifier, ref); err != nil {
 			return nil, err
 		}
 
@@ -396,11 +396,11 @@ func Import(store Cache, ref, platformStr string, src v1.Image) (*Image, error) 
 	// import failing, not a warning.
 	identifier := resolveIdentifier(parsed, platform.String())
 
-	if err := dropRecord(store, identifier, ref); err != nil {
+	if err = dropRecord(store, identifier, ref); err != nil {
 		return nil, err
 	}
 
-	if _, err := acquireRecord(store, identifier, func() (io.ReadCloser, error) {
+	if _, err = acquireRecord(store, identifier, func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(encoded)), nil
 	}); err != nil {
 		return nil, fmt.Errorf("%w: recording %s: %w", ErrCache, ref, err)

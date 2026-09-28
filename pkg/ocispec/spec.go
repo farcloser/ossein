@@ -174,7 +174,7 @@ func Marshal(spec *specs.Spec) ([]byte, error) {
 	decoder.UseNumber()
 
 	var doc map[string]any
-	if err := decoder.Decode(&doc); err != nil {
+	if err = decoder.Decode(&doc); err != nil {
 		return nil, fmt.Errorf("re-parsing oci spec: %w", err)
 	}
 
