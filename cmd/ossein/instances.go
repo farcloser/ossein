@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/mycophonic/primordium/filesystem"
 )
 
 // buildkitRecordName is the per-instance file (inside InstanceDir) that says
@@ -33,7 +35,11 @@ func writeBuildkitRecord(dir string, rec buildkitRecord) error {
 		return fmt.Errorf("encoding buildkit record: %w", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, buildkitRecordName), encoded, pidFileMode); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, buildkitRecordName),
+		encoded,
+		filesystem.FilePermissionsPrivate,
+	); err != nil {
 		return fmt.Errorf("writing buildkit record: %w", err)
 	}
 

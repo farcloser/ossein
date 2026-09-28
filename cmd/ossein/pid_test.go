@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/mycophonic/primordium/filesystem"
 )
 
 // deadChild spawns and fully reaps a child, returning its now-dead pid and the
@@ -96,7 +98,7 @@ func TestPidAliveStaleFile(t *testing.T) {
 
 	// Dead (reaped) child: the file parses but the process is gone.
 	pid, start := deadChild(t)
-	if err := os.WriteFile(path, fmt.Appendf(nil, "%d:%d", pid, start), pidFileMode); err != nil {
+	if err := os.WriteFile(path, fmt.Appendf(nil, "%d:%d", pid, start), filesystem.FilePermissionsPrivate); err != nil {
 		t.Fatal(err)
 	}
 
@@ -106,7 +108,11 @@ func TestPidAliveStaleFile(t *testing.T) {
 
 	// Recycled-pid simulation: a live pid recorded with a different start time
 	// must read as dead — that "instance" no longer exists.
-	if err := os.WriteFile(path, fmt.Appendf(nil, "%d:%d", os.Getpid(), start+12345), pidFileMode); err != nil {
+	if err := os.WriteFile(
+		path,
+		fmt.Appendf(nil, "%d:%d", os.Getpid(), start+12345),
+		filesystem.FilePermissionsPrivate,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,7 +140,7 @@ func TestReadPidGarbageIsStale(t *testing.T) {
 
 	for name, content := range cases {
 		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, []byte(content), pidFileMode); err != nil {
+		if err := os.WriteFile(path, []byte(content), filesystem.FilePermissionsPrivate); err != nil {
 			t.Fatal(err)
 		}
 
@@ -172,7 +178,11 @@ func TestGcRoot(t *testing.T) {
 	pid, start := deadChild(t)
 
 	deadRecord := fmt.Appendf(nil, "%d:%d", pid, start)
-	if err := os.WriteFile(filepath.Join(deadDir, pidFileName), deadRecord, pidFileMode); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(deadDir, pidFileName),
+		deadRecord,
+		filesystem.FilePermissionsPrivate,
+	); err != nil {
 		t.Fatal(err)
 	}
 

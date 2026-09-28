@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mycophonic/primordium/filesystem"
 	"github.com/mycophonic/primordium/filesystem/dirs"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
@@ -55,11 +56,10 @@ const (
 	// has exited (the grace budget itself is the stop --grace flag).
 	stopPollInterval = 250 * time.Millisecond
 
-	// pidFileName is the per-instance pid file (inside InstanceDir); pidFileMode
-	// keeps it owner-only. The record is "pid:starttime" — the start time pins
-	// the process incarnation so a recycled pid is never signaled.
+	// pidFileName is the per-instance pid file (inside InstanceDir). The record
+	// is "pid:starttime" — the start time pins the process incarnation so a
+	// recycled pid is never signaled.
 	pidFileName = "pid"
-	pidFileMode = 0o600
 
 	// buildkitLogName is the backgrounded child's stdout/stderr capture
 	// (inside InstanceDir), the file every "see the log" message points at.
@@ -1339,7 +1339,11 @@ func writePid(dir string, pid int) error {
 
 	record := strconv.Itoa(pid) + ":" + strconv.FormatInt(start, decimal)
 
-	if err := os.WriteFile(filepath.Join(dir, pidFileName), []byte(record), pidFileMode); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, pidFileName),
+		[]byte(record),
+		filesystem.FilePermissionsPrivate,
+	); err != nil {
 		return fmt.Errorf("writing pidfile: %w", err)
 	}
 
