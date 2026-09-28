@@ -957,14 +957,14 @@ func (c *buildkitCmd) detach(
 
 	go func() { _ = child.Wait() }() // reap if it dies while we poll
 
-	logger.Info("buildkit starting in background", pidFileName, child.Process.Pid, "log", logPath)
+	logger.InfoContext(ctx, "buildkit starting in background", pidFileName, child.Process.Pid, "log", logPath)
 
 	if err := awaitSocket(ctx, sock, child.Process.Pid, logPath, bkReadyTimeout); err != nil {
 		return err
 	}
 
 	fmt.Fprintf(os.Stdout, "export BUILDKIT_HOST=unix://%s\n", sock)
-	logger.Info("buildkit ready", logKeyID, instanceID, "stop", "ossein stop "+instanceID)
+	logger.InfoContext(ctx, "buildkit ready", logKeyID, instanceID, "stop", "ossein stop "+instanceID)
 
 	return nil
 }
