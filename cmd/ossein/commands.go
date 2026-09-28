@@ -341,9 +341,10 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 	mounts := make([]container.Mount, 0, len(c.Volume))
 
 	for _, raw := range c.Volume {
-		mount, parseErr := parseVolume(raw)
-		if parseErr != nil {
-			return parseErr
+		var mount container.Mount
+
+		if mount, err = parseVolume(raw); err != nil {
+			return err
 		}
 
 		mounts = append(mounts, mount)
@@ -637,8 +638,10 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	// own previous success. Only for the default socket: a caller naming a
 	// --sock asked for THAT socket, not whichever one is up.
 	if c.Detach && c.Sock == "" {
-		if done, reuseErr := reuseInstance(ctx, logger, cacheDir); done || reuseErr != nil {
-			return reuseErr
+		var done bool
+
+		if done, err = reuseInstance(ctx, logger, cacheDir); done || err != nil {
+			return err
 		}
 	}
 
