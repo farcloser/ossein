@@ -3,7 +3,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"testing"
@@ -52,17 +51,22 @@ func TestSelectImageSkipsAttestationsAndMatchesPlatform(t *testing.T) {
 	}
 
 	idx := mutate.AppendManifests(empty.Index,
-		mutate.IndexAddendum{Add: attestation, Descriptor: v1.Descriptor{
+		mutate.IndexAddendum{
+			Add:         attestation,
 			MediaType:   types.OCIManifestSchema1,
 			Annotations: map[string]string{attestationAnnotation: "attestation-manifest"},
 			Platform:    &v1.Platform{OS: "unknown", Architecture: "unknown"},
-		}},
-		mutate.IndexAddendum{Add: amd, Descriptor: v1.Descriptor{
-			MediaType: types.OCIManifestSchema1, Platform: &v1.Platform{OS: "linux", Architecture: "amd64"},
-		}},
-		mutate.IndexAddendum{Add: arm, Descriptor: v1.Descriptor{
-			MediaType: types.OCIManifestSchema1, Platform: &v1.Platform{OS: "linux", Architecture: "arm64"},
-		}},
+		},
+		mutate.IndexAddendum{
+			Add:       amd,
+			MediaType: types.OCIManifestSchema1,
+			Platform:  &v1.Platform{OS: "linux", Architecture: "amd64"},
+		},
+		mutate.IndexAddendum{
+			Add:       arm,
+			MediaType: types.OCIManifestSchema1,
+			Platform:  &v1.Platform{OS: "linux", Architecture: "arm64"},
+		},
 	)
 
 	dir := writeLayout(t, idx)
@@ -97,7 +101,7 @@ func TestImportTagsMakesTheTagResolvable(t *testing.T) {
 
 	// A single-platform export: one platform-less manifest in the index.
 	dir := writeLayout(t, mutate.AppendManifests(empty.Index,
-		mutate.IndexAddendum{Add: built, Descriptor: v1.Descriptor{MediaType: types.OCIManifestSchema1}}))
+		mutate.IndexAddendum{Add: built, MediaType: types.OCIManifestSchema1}))
 
 	tags := []string{"index.docker.io/library/app:dev", "ghcr.io/org/app:v1"}
 
@@ -116,7 +120,7 @@ func TestImportTagsMakesTheTagResolvable(t *testing.T) {
 
 	// The short spelling a script uses must resolve OFFLINE to the build.
 	for _, ref := range []string{"app:dev", "ghcr.io/org/app:v1"} {
-		resolved, err := image.Resolve(context.Background(), cache, ref, "", image.PullNever)
+		resolved, err := image.Resolve(t.Context(), cache, ref, "", image.PullNever)
 		if err != nil {
 			t.Fatalf("Resolve(%s) after importTags: %v", ref, err)
 		}

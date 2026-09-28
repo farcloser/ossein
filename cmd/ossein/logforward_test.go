@@ -32,7 +32,7 @@ func decodeLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
 
 	var out []map[string]any
 
-	for _, line := range bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
+	for line := range bytes.SplitSeq(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
 		if len(line) == 0 {
 			continue
 		}
@@ -126,8 +126,8 @@ func TestLogForwarderNonJSONPassthrough(t *testing.T) {
 		t.Fatalf("want 1 record, got %d", len(records))
 	}
 
-	raw, _ := records[0]["raw"].(bool)
-	if records[0]["msg"] != "panic: runtime error" || !raw {
+	raw, isBool := records[0]["raw"].(bool)
+	if records[0]["msg"] != "panic: runtime error" || !isBool || !raw {
 		t.Fatalf("non-JSON not passed through raw: %v", records[0])
 	}
 }

@@ -69,7 +69,7 @@ func dialFake(t *testing.T, fake *fakeGuest) (*Agent, error) {
 
 	addr := server.Listener.Addr().String()
 
-	return Dial(context.Background(), func(ctx context.Context) (net.Conn, error) {
+	return Dial(t.Context(), func(ctx context.Context) (net.Conn, error) {
 		var dialer net.Dialer
 
 		return dialer.DialContext(ctx, "tcp", addr)
@@ -131,7 +131,7 @@ func TestCopyInArchive(t *testing.T) {
 
 		defer func() { _ = agent.Close() }()
 
-		if err := agent.CopyInArchive(context.Background(), "/rootfs", "/dev/vdb"); err != nil {
+		if err := agent.CopyInArchive(t.Context(), "/rootfs", "/dev/vdb"); err != nil {
 			t.Fatalf("CopyInArchive after COMPLETE: %v", err)
 		}
 	})
@@ -151,7 +151,7 @@ func TestCopyInArchive(t *testing.T) {
 
 		defer func() { _ = agent.Close() }()
 
-		err = agent.CopyInArchive(context.Background(), "/rootfs", "/dev/vdb")
+		err = agent.CopyInArchive(t.Context(), "/rootfs", "/dev/vdb")
 		if err == nil || !errors.Is(err, ErrAgent) {
 			t.Fatalf("in-band error must surface wrapped in ErrAgent, got: %v", err)
 		}
@@ -172,7 +172,7 @@ func TestCopyInArchive(t *testing.T) {
 
 		defer func() { _ = agent.Close() }()
 
-		err = agent.CopyInArchive(context.Background(), "/rootfs", "/dev/vdb")
+		err = agent.CopyInArchive(t.Context(), "/rootfs", "/dev/vdb")
 		if err == nil {
 			t.Fatal("clean stream end without COMPLETE was treated as a successful rootfs copy")
 		}

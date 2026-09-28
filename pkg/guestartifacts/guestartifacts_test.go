@@ -99,15 +99,11 @@ func TestMaterialize(t *testing.T) {
 		var group sync.WaitGroup
 
 		for range 8 {
-			group.Add(1)
-
-			go func() {
-				defer group.Done()
-
+			group.Go(func() {
 				if _, err := materialize(root, "kernel-test", data, ""); err != nil {
 					t.Errorf("concurrent materialize: %v", err)
 				}
-			}()
+			})
 		}
 
 		group.Wait()
