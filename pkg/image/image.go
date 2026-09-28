@@ -256,18 +256,22 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 	// credential store (a `docker login` lifts the anonymous rate limit; falls
 	// back to anonymous, so always safe to pass).
 	remoteImage := func() (v1.Image, *remote.Descriptor, error) {
-		desc, getErr := remote.Get(parsed,
+		var (
+			desc *remote.Descriptor
+			img  v1.Image
+		)
+
+		desc, err = remote.Get(parsed,
 			remote.WithContext(ctx),
 			remote.WithPlatform(platform),
 			remote.WithAuthFromKeychain(authn.DefaultKeychain),
 		)
-		if getErr != nil {
-			return nil, nil, fmt.Errorf("%w: resolve %s: %w", ErrResolve, ref, getErr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w: resolve %s: %w", ErrResolve, ref, err)
 		}
 
-		img, getErr := desc.Image()
-		if getErr != nil {
-			return nil, nil, fmt.Errorf("%w: image for %s (platform %s): %w", ErrResolve, ref, platKey, getErr)
+		if img, err = desc.Image(); err != nil {
+			return nil, nil, fmt.Errorf("%w: image for %s (platform %s): %w", ErrResolve, ref, platKey, err)
 		}
 
 		return img, desc, nil
@@ -279,9 +283,15 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 	var fetched v1.Image
 
 	online := func() (io.ReadCloser, error) {
-		img, desc, fetchErr := remoteImage()
-		if fetchErr != nil {
-			return nil, fetchErr
+		var (
+			img     v1.Image
+			desc    *remote.Descriptor
+			rec     resolution
+			encoded []byte
+		)
+
+		if img, desc, err = remoteImage(); err != nil {
+			return nil, err
 		}
 
 		var index []byte
@@ -289,14 +299,12 @@ func Resolve(ctx context.Context, store Cache, ref, platformStr, pull string) (*
 			index = desc.Manifest
 		}
 
-		rec, fetchErr := newResolution(img, index, false)
-		if fetchErr != nil {
-			return nil, errRecord(ref, fetchErr)
+		if rec, err = newResolution(img, index, false); err != nil {
+			return nil, errRecord(ref, err)
 		}
 
-		encoded, fetchErr := json.Marshal(rec)
-		if fetchErr != nil {
-			return nil, errRecord(ref, fetchErr)
+		if encoded, err = json.Marshal(rec); err != nil {
+			return nil, errRecord(ref, err)
 		}
 
 		fetched = img
