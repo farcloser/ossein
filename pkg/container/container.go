@@ -301,7 +301,8 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 		pull = image.PullMissing
 	}
 
-	logger.Info("resolving image", "image", spec.Image, "platform", canonPlatform, "rosetta", rosetta, "pull", pull)
+	logger.InfoContext(ctx, "resolving image",
+		"image", spec.Image, "platform", canonPlatform, "rosetta", rosetta, "pull", pull)
 
 	img, err := image.Resolve(ctx, cache, spec.Image, canonPlatform, pull)
 	if err != nil {
@@ -309,7 +310,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, stageAt := lap()
-	logger.Info("image resolved",
+	logger.InfoContext(ctx, "image resolved",
 		slog.String("digest", img.Digest), slog.String("platform", canonPlatform), stageDur, stageAt)
 
 	// The flattened rootfs blob must exist as a complete file BEFORE the VM
@@ -325,7 +326,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, stageAt = lap()
-	logger.Info("rootfs blob pinned", slog.Int64("sizeMiB", rootfsBlob.Size>>20), stageDur, stageAt)
+	logger.InfoContext(ctx, "rootfs blob pinned", slog.Int64("sizeMiB", rootfsBlob.Size>>20), stageDur, stageAt)
 
 	cpus := spec.CPUs
 	if cpus == 0 {
@@ -363,7 +364,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, stageAt = lap()
-	logger.Info("microVM created",
+	logger.InfoContext(ctx, "microVM created",
 		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memoryMiB", mem),
 		slog.String("console", consoleLog), stageDur, stageAt)
 
@@ -386,7 +387,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	// Control channel. ConnectRetry honors the dial ctx, so cancelling Boot
 	// interrupts the retry loop; guest.Dial's handshake timeout is the overall
 	// patience bound.
-	logger.Debug("dialing guest agent", "vsockPort", protocol.VsockPort)
+	logger.DebugContext(ctx, "dialing guest agent", "vsockPort", protocol.VsockPort)
 
 	agent, err := guest.Dial(ctx, func(dialCtx context.Context) (net.Conn, error) {
 		return machine.ConnectRetry(dialCtx, protocol.VsockPort, 20*time.Second)
@@ -398,7 +399,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	inst.agent = agent
 
 	stageDur, stageAt = lap()
-	logger.Info("guest agent up", stageDur, stageAt)
+	logger.InfoContext(ctx, "guest agent up", stageDur, stageAt)
 
 	if err := inst.copyInRootfs(ctx); err != nil {
 		return fail(err)
@@ -409,7 +410,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, stageAt = lap()
-	logger.Info("rootfs extracted", stageDur, stageAt)
+	logger.InfoContext(ctx, "rootfs extracted", stageDur, stageAt)
 
 	if err := inst.configureLoopback(ctx); err != nil {
 		return fail(err)
@@ -422,7 +423,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 		}
 
 		stageDur, stageAt = lap()
-		logger.Info("guest network up", slog.String("cidr", netCfg.CIDR),
+		logger.InfoContext(ctx, "guest network up", slog.String("cidr", netCfg.CIDR),
 			slog.String("gateway", netCfg.Gateway), slog.Any("dns", netCfg.Nameservers),
 			stageDur, stageAt)
 	}
@@ -434,7 +435,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, _ = lap()
-	logger.Info("boot complete", stageDur, slog.Duration("total", time.Since(bootStart)))
+	logger.InfoContext(ctx, "boot complete", stageDur, slog.Duration("total", time.Since(bootStart)))
 
 	return inst, img, nil
 }
@@ -550,7 +551,7 @@ func Doctor(ctx context.Context, art Artifacts, consoleLog string) error {
 func (i *Instance) StartProcess(ctx context.Context) error {
 	startTime := time.Now()
 	defer func() {
-		slog.Default().Info("process started", slog.String(logKeyInstance, i.ID),
+		slog.Default().InfoContext(ctx, "process started", slog.String(logKeyInstance, i.ID),
 			slog.Duration("dur", time.Since(startTime)))
 	}()
 
@@ -803,7 +804,7 @@ func (i *Instance) Close(ctx context.Context) {
 			flushStart := time.Now()
 
 			if err := i.agent.Sync(flushCtx); err != nil {
-				slog.Default().Warn("guest sync failed; cache disk writes may be lost",
+				slog.Default().WarnContext(ctx, "guest sync failed; cache disk writes may be lost",
 					logKeyInstance, i.ID, logKeyErr, err)
 			}
 
@@ -815,7 +816,7 @@ func (i *Instance) Close(ctx context.Context) {
 				}
 
 				if err != nil {
-					slog.Default().Warn("cache disk unmount failed; image may be torn mid-write",
+					slog.Default().WarnContext(ctx, "cache disk unmount failed; image may be torn mid-write",
 						logKeyInstance, i.ID, "mount", mnt, logKeyErr, err)
 				}
 			}
@@ -838,7 +839,7 @@ func (i *Instance) Close(ctx context.Context) {
 		vmStart := time.Now()
 
 		if err := i.vm.Close(); err != nil {
-			slog.Default().Warn("vm close", logKeyInstance, i.ID, logKeyErr, err)
+			slog.Default().WarnContext(ctx, "vm close", logKeyInstance, i.ID, logKeyErr, err)
 		}
 
 		vmDur = time.Since(vmStart)
@@ -848,13 +849,13 @@ func (i *Instance) Close(ctx context.Context) {
 	// pin on the cache entry.
 	if i.rootfsPin != nil {
 		if err := i.rootfsPin.Release(); err != nil {
-			slog.Default().Warn("rootfs blob unpin", logKeyInstance, i.ID, logKeyErr, err)
+			slog.Default().WarnContext(ctx, "rootfs blob unpin", logKeyInstance, i.ID, logKeyErr, err)
 		}
 
 		i.rootfsPin = nil
 	}
 
-	slog.Default().Info("teardown complete", slog.String(logKeyInstance, i.ID),
+	slog.Default().InfoContext(ctx, "teardown complete", slog.String(logKeyInstance, i.ID),
 		slog.Duration("dur", flushDur+agentDur+vmDur),
 		slog.Duration("cache_flush", flushDur), slog.Duration("agent_close", agentDur),
 		slog.Duration("vm_stop", vmDur))
@@ -1092,7 +1093,7 @@ func (i *Instance) mountDisks(ctx context.Context, disks []DiskMount, logger *sl
 
 		i.mountedDisks = append(i.mountedDisks, guestMount)
 
-		logger.Info("mounted cache disk", "device", dev, "guest", disk.GuestPath)
+		logger.InfoContext(ctx, "mounted cache disk", "device", dev, "guest", disk.GuestPath)
 	}
 
 	return nil

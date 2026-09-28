@@ -131,7 +131,7 @@ func reuseInstance(ctx context.Context, logger *slog.Logger, cacheDir string) (d
 	}
 
 	fmt.Fprintf(os.Stdout, "export BUILDKIT_HOST=unix://%s\n", inst.rec.Sock)
-	logger.Info("buildkit already running for this cache — reusing",
+	logger.InfoContext(ctx, "buildkit already running for this cache — reusing",
 		logKeyID, inst.id, "sock", inst.rec.Sock, "stop", "ossein stop "+inst.id)
 
 	return true, nil
