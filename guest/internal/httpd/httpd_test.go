@@ -492,7 +492,7 @@ func TestIdleConnectionIsNotClosedByHeaderTimeout(t *testing.T) {
 	// Idle for well over the header timeout, then reuse the connection.
 	time.Sleep(400 * time.Millisecond)
 
-	if _, err := conn.Write([]byte(post("/", ""))); err != nil {
+	if _, err = conn.Write([]byte(post("/", ""))); err != nil {
 		t.Fatalf("write after idle: %v", err)
 	}
 

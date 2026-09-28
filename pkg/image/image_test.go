@@ -607,9 +607,9 @@ func TestImportResolvesOfflineAndFlattens(t *testing.T) {
 	// both pull policies that consult the local record, and serves the same
 	// cached blob.
 	for _, pull := range []string{PullNever, PullMissing} {
-		resolved, err := Resolve(context.Background(), cache, ref, "", pull)
-		if err != nil {
-			t.Fatalf("Resolve(%s) after Import: %v", pull, err)
+		resolved, resolveErr := Resolve(context.Background(), cache, ref, "", pull)
+		if resolveErr != nil {
+			t.Fatalf("Resolve(%s) after Import: %v", pull, resolveErr)
 		}
 
 		if resolved.Digest != wantDigest.Hex {
