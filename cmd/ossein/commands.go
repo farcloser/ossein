@@ -332,7 +332,7 @@ func parseEnvFile(path string) ([]string, error) {
 }
 
 func (c *runCmd) Run(art *container.Artifacts) (err error) {
-	if err := requireArtifacts(art); err != nil {
+	if err = requireArtifacts(art); err != nil {
 		return err
 	}
 
@@ -341,9 +341,9 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 	mounts := make([]container.Mount, 0, len(c.Volume))
 
 	for _, raw := range c.Volume {
-		mount, err := parseVolume(raw)
-		if err != nil {
-			return err
+		mount, parseErr := parseVolume(raw)
+		if parseErr != nil {
+			return parseErr
 		}
 
 		mounts = append(mounts, mount)
@@ -376,7 +376,7 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 		return err
 	}
 
-	if err := writePid(dir, os.Getpid()); err != nil {
+	if err = writePid(dir, os.Getpid()); err != nil {
 		return err
 	}
 
@@ -438,7 +438,7 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 	release := escalateSignals(ctx, sigs, inst, dir)
 	defer release()
 
-	if err := inst.StartProcess(ctx); err != nil {
+	if err = inst.StartProcess(ctx); err != nil {
 		return err
 	}
 
@@ -608,7 +608,7 @@ type buildkitCmd struct {
 }
 
 func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level string) (err error) {
-	if err := requireArtifacts(art); err != nil {
+	if err = requireArtifacts(art); err != nil {
 		return err
 	}
 
@@ -637,8 +637,8 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	// own previous success. Only for the default socket: a caller naming a
 	// --sock asked for THAT socket, not whichever one is up.
 	if c.Detach && c.Sock == "" {
-		if done, err := reuseInstance(ctx, logger, cacheDir); done || err != nil {
-			return err
+		if done, reuseErr := reuseInstance(ctx, logger, cacheDir); done || reuseErr != nil {
+			return reuseErr
 		}
 	}
 
@@ -646,7 +646,8 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	// held by a running instance — instead of dying deep inside a detached child
 	// with only a terse log line. (The child still enforces the lock; this is a
 	// courtesy pre-check, so a lost race just falls back to the real error.)
-	if busy, err := volume.InUse(cacheDir); err != nil {
+	busy, err := volume.InUse(cacheDir)
+	if err != nil {
 		return err
 	} else if busy {
 		return fmt.Errorf(
@@ -661,7 +662,7 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	// ExposeUnix would refuse it anyway, and detach would otherwise print a
 	// BUILDKIT_HOST that points at the wrong listener.
 	if c.Sock != "" {
-		if err := ensureSocketFree(ctx, c.Sock); err != nil {
+		if err = ensureSocketFree(ctx, c.Sock); err != nil {
 			return err
 		}
 	}
@@ -706,7 +707,7 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	instanceID := c.InstanceID
 	if instanceID == "" {
 		instanceID = container.NewID()
-	} else if err := validateInstanceID(instanceID); err != nil {
+	} else if err = validateInstanceID(instanceID); err != nil {
 		// The forced id is joined into the state root and the resulting dir is
 		// deferred-RemoveAll'd — an escaping id must never get that far.
 		return err
@@ -717,7 +718,7 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 		return err
 	}
 
-	if err := writePid(dir, os.Getpid()); err != nil {
+	if err = writePid(dir, os.Getpid()); err != nil {
 		return err
 	}
 
@@ -730,7 +731,7 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 		return err
 	}
 
-	if err := writeBuildkitRecord(dir, buildkitRecord{Cache: cacheDir, Sock: hostSock}); err != nil {
+	if err = writeBuildkitRecord(dir, buildkitRecord{Cache: cacheDir, Sock: hostSock}); err != nil {
 		return err
 	}
 
@@ -771,7 +772,7 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 	release := escalateSignals(ctx, sigs, inst, dir)
 	defer release()
 
-	if err := inst.StartProcess(ctx); err != nil {
+	if err = inst.StartProcess(ctx); err != nil {
 		return err
 	}
 
@@ -905,7 +906,7 @@ func (c *buildkitCmd) detach(
 		return fmt.Errorf("pre-pull %s: %w", c.Image, err)
 	}
 
-	if err := warm(img); err != nil {
+	if err = warm(img); err != nil {
 		return fmt.Errorf("pre-pull %s: %w", c.Image, err)
 	}
 
