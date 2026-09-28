@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -296,8 +297,8 @@ func ensureEnv(env []string, key, value string) []string {
 // non-empty override replaces Cmd; Entrypoint is always preserved.
 func Command(entrypoint, cmd, override []string) []string {
 	if len(override) > 0 {
-		return append(append([]string{}, entrypoint...), override...)
+		return slices.Concat(entrypoint, override)
 	}
 
-	return append(append([]string{}, entrypoint...), cmd...)
+	return slices.Concat(entrypoint, cmd)
 }
