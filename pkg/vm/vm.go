@@ -192,11 +192,11 @@ func New(cfg Config) (*VM, error) {
 		return nil, fmt.Errorf("vm configuration: %w", err)
 	}
 
-	if err := configureStorage(vmc, cfg); err != nil {
+	if err = configureStorage(vmc, cfg); err != nil {
 		return nil, err
 	}
 
-	if err := configureIO(vmc, cfg); err != nil {
+	if err = configureIO(vmc, cfg); err != nil {
 		return nil, err
 	}
 
@@ -205,11 +205,12 @@ func New(cfg Config) (*VM, error) {
 		return nil, err
 	}
 
-	if err := configureShares(vmc, cfg); err != nil {
+	if err = configureShares(vmc, cfg); err != nil {
 		return nil, err
 	}
 
-	if ok, err := vmc.Validate(); !ok || err != nil {
+	ok, err := vmc.Validate()
+	if !ok || err != nil {
 		return nil, fmt.Errorf("configuration invalid: %w", err)
 	}
 

@@ -79,11 +79,11 @@ func TestEnsureRefusesConcurrentUse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := volume.Ensure(dir, testImageSize, false); !errors.Is(err, volume.ErrInUse) {
+	if _, err = volume.Ensure(dir, testImageSize, false); !errors.Is(err, volume.ErrInUse) {
 		t.Fatalf("second Ensure while held = %v, want ErrInUse", err)
 	}
 
-	if err := first.Close(); err != nil {
+	if err = first.Close(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -125,7 +125,7 @@ func TestPruneUnusedSkipsHeldRemovesIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := idle.Close(); err != nil {
+	if err = idle.Close(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -198,7 +198,7 @@ func TestEnsureRejectsCorruptImage(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := vol.Close(); err != nil {
+			if err = vol.Close(); err != nil {
 				t.Fatal(err)
 			}
 

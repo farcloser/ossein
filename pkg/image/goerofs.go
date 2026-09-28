@@ -64,7 +64,7 @@ func buildGoEROFS(tarStream io.ReadCloser) (io.ReadCloser, error) {
 	convErr := convertTarToEROFS(tarStream, img, tmpDir)
 
 	closeErr := errors.Join(img.Close(), tarStream.Close())
-	if err := errors.Join(convErr, closeErr); err != nil {
+	if err = errors.Join(convErr, closeErr); err != nil {
 		_ = os.RemoveAll(tmpDir)
 
 		return nil, fmt.Errorf("%w: goerofs conversion: %w", ErrCache, err)

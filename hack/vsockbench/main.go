@@ -105,7 +105,7 @@ func run(opts options) error {
 		return fmt.Errorf("bench dir: %w", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(absBench, "vsockpeer")); err != nil {
+	if _, err = os.Stat(filepath.Join(absBench, "vsockpeer")); err != nil {
 		return fmt.Errorf("vsockpeer not built: %w (just build-vsockbench)", err)
 	}
 
@@ -138,7 +138,7 @@ func run(opts options) error {
 	}
 	defer inst.Close(context.Background())
 
-	if err := inst.StartProcess(ctx); err != nil {
+	if err = inst.StartProcess(ctx); err != nil {
 		return fmt.Errorf("start peer: %w", err)
 	}
 

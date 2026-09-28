@@ -53,11 +53,11 @@ func TestMaterialize(t *testing.T) {
 			t.Fatalf("materialize: %v", err)
 		}
 
-		if err := os.Truncate(path, 3); err != nil {
+		if err = os.Truncate(path, 3); err != nil {
 			t.Fatalf("truncate: %v", err)
 		}
 
-		if _, err := materialize(root, "kernel-test", data, ""); err != nil {
+		if _, err = materialize(root, "kernel-test", data, ""); err != nil {
 			t.Fatalf("re-materialize over truncated file: %v", err)
 		}
 

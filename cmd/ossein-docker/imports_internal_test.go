@@ -101,7 +101,7 @@ func TestImportTagsMakesTheTagResolvable(t *testing.T) {
 
 	tags := []string{"index.docker.io/library/app:dev", "ghcr.io/org/app:v1"}
 
-	if err := importTags(slog.Default(), dir, tags, ""); err != nil {
+	if err = importTags(slog.Default(), dir, tags, ""); err != nil {
 		t.Fatalf("importTags: %v", err)
 	}
 
