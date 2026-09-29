@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mycophonic/primordium/bytesize"
 	"github.com/mycophonic/primordium/filesystem/dirs"
 	blobcache "github.com/mycophonic/primordium/store/cache"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -473,7 +474,7 @@ func vmConfig(
 		Kernel:          art.Kernel,
 		Initfs:          art.Initfs,
 		CPUs:            cpus,
-		MemoryMiB:       mem,
+		Memory:          mem * bytesize.MiB,
 		ConsoleLog:      consoleLog,
 		Network:         spec.Network,
 		Shares:          shares,
@@ -519,7 +520,7 @@ func Doctor(ctx context.Context, art Artifacts, consoleLog string) error {
 		Kernel:     art.Kernel,
 		Initfs:     art.Initfs,
 		CPUs:       1,
-		MemoryMiB:  doctorMemoryMiB,
+		Memory:     doctorMemoryMiB * bytesize.MiB,
 		ConsoleLog: consoleLog,
 	})
 	if err != nil {

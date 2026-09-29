@@ -21,14 +21,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mycophonic/primordium/bytesize"
 	"golang.org/x/sys/unix"
 
 	"github.com/farcloser/ossein/internal/protocol"
 	"github.com/farcloser/ossein/third_party/vz"
 )
-
-// bytesPerMiB converts Config.MemoryMiB into the byte count VZ wants.
-const bytesPerMiB = 1024 * 1024
 
 // HostMaxCPUs is every CPU the host has, as far as one guest can use them: the
 // host's logical CPU count, capped at what Virtualization.framework allows.
@@ -51,7 +49,7 @@ func HostMaxMemoryMiB() uint64 {
 		physical = allowed
 	}
 
-	return min(physical, allowed) >> 20
+	return min(physical, allowed) / bytesize.MiB
 }
 
 // Disk is an extra virtio-blk attachment (after the initfs at /dev/vda).
@@ -74,10 +72,10 @@ type Share struct {
 
 // Config describes one microVM.
 type Config struct {
-	Kernel    string // uncompressed arm64 Image (kernel-arm64)
-	Initfs    string // initfs.cpio containing vminitd (unpacked in RAM as the initramfs root)
-	CPUs      uint
-	MemoryMiB uint64
+	Kernel string // uncompressed arm64 Image (kernel-arm64)
+	Initfs string // initfs.cpio containing vminitd (unpacked in RAM as the initramfs root)
+	CPUs   uint
+	Memory uint64 // guest RAM, in bytes
 
 	ConsoleLog string // file receiving the guest console (hvc0); empty = discard
 	// Network attaches a virtio-net device to Virtualization.framework's own NAT
@@ -190,7 +188,7 @@ func New(cfg Config) (*VM, error) {
 		return nil, fmt.Errorf("bootloader: %w", err)
 	}
 
-	vmc, err := vz.NewVirtualMachineConfiguration(boot, cfg.CPUs, cfg.MemoryMiB*bytesPerMiB)
+	vmc, err := vz.NewVirtualMachineConfiguration(boot, cfg.CPUs, cfg.Memory)
 	if err != nil {
 		return nil, fmt.Errorf("vm configuration: %w", err)
 	}
