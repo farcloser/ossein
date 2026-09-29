@@ -46,18 +46,20 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/mycophonic/primordium/bytesize"
 )
 
 const (
 	// readBufSize also bounds the request head: http.ReadRequest reads lines
 	// through this bufio.Reader, so a header line longer than this fails the
 	// read rather than growing without limit.
-	readBufSize  = 16 << 10
-	writeBufSize = 16 << 10
+	readBufSize  = 16 * bytesize.KiB
+	writeBufSize = 16 * bytesize.KiB
 
 	// maxDrainBytes caps how much unread request body we will consume to keep a
 	// connection alive. Past this, closing costs less than reading.
-	maxDrainBytes = 256 << 10
+	maxDrainBytes = 256 * bytesize.KiB
 )
 
 // ErrServerClosed is returned by Serve when the listener is closed.

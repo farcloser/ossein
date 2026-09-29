@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/mycophonic/primordium/bytesize"
 
 	"github.com/farcloser/ossein/guest/internal/httpd"
 	pb "github.com/farcloser/ossein/internal/sandbox"
@@ -345,7 +346,7 @@ func TestSmallResponseIsLengthDelimited(t *testing.T) {
 func TestLargeResponseSwitchesToChunked(t *testing.T) {
 	t.Parallel()
 
-	payload := strings.Repeat("x", 64<<10)
+	payload := strings.Repeat("x", 64*bytesize.KiB)
 	addr := start(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(payload))
 	}), time.Second)
