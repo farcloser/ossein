@@ -195,6 +195,12 @@ linters:
           - revive
 
   settings:
+    govet:
+      enable-all: true
+      disable: [fieldalignment]
+      settings:
+        shadow:
+          strict: false
     nolintlint:
       allow-unused: false
       require-explanation: true
