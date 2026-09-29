@@ -148,7 +148,6 @@ linters:
     - forcetypeassert # provided by revive
     - funlen # provided by revive
     - gocognit # provided by revive
-    - goconst # provided by revive
     - gomodguard # we use depguard instead
     - lll # provided by golines
     - loggercheck # better dealt with by specialized libraries
@@ -175,6 +174,7 @@ linters:
           - noctx
           - perfsprint
           - depguard
+          - goconst
       - path: _test.go
         text: "add-constant|cognitive-complexity|confusing-results|nested-structs|use-waitgroup-go|unchecked-type-assertion|unhandled-error|unused-receiver"
         linters:
@@ -196,6 +196,9 @@ linters:
           - revive
 
   settings:
+    goconst:
+      min-occurrences: 3
+      ignore-string-values: ["^%"]
     sloglint:
       context: scope
       key-naming-case: snake
