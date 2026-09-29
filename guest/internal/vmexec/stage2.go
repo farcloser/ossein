@@ -87,45 +87,45 @@ func run(specPath string, stdin, stdout, stderr uint, tty bool) error {
 	// Non-TTY stdio is wired before pivot (vsock needs no filesystem). TTY stdio
 	// is set up after the rootfs (the pty comes from the container's devpts).
 	if !tty {
-		if err := wireStdio(stdin, stdout, stderr); err != nil {
+		if err = wireStdio(stdin, stdout, stderr); err != nil {
 			return err
 		}
 	}
 
-	if err := setupRootfs(spec); err != nil {
+	if err = setupRootfs(spec); err != nil {
 		return err
 	}
 
 	if tty {
-		if err := setupConsole(); err != nil {
+		if err = setupConsole(); err != nil {
 			return err
 		}
 	}
 
 	if spec.Hostname != "" {
-		if err := unix.Sethostname([]byte(spec.Hostname)); err != nil {
+		if err = unix.Sethostname([]byte(spec.Hostname)); err != nil {
 			return fmt.Errorf("sethostname: %w", err)
 		}
 	}
 
-	if err := applySysctls(spec); err != nil {
+	if err = applySysctls(spec); err != nil {
 		return err
 	}
 	// Masked/readonly paths need CAP_SYS_ADMIN (still held as root here) and must
 	// precede the uid/cap drop; mask first so a doubly-listed path is hidden.
-	if err := applyMaskedPaths(spec); err != nil {
+	if err = applyMaskedPaths(spec); err != nil {
 		return err
 	}
 
-	if err := applyReadonlyPaths(spec); err != nil {
+	if err = applyReadonlyPaths(spec); err != nil {
 		return err
 	}
 
-	if err := setCloexecOnExtraFDs(); err != nil {
+	if err = setCloexecOnExtraFDs(); err != nil {
 		return err
 	}
 
-	if err := setRLimits(spec.Process.Rlimits); err != nil {
+	if err = setRLimits(spec.Process.Rlimits); err != nil {
 		return err
 	}
 
@@ -250,7 +250,7 @@ func setupConsole() error {
 	}
 	defer func() { _ = unix.Close(master) }()
 
-	if err := unix.IoctlSetPointerInt(master, unix.TIOCSPTLCK, 0); err != nil {
+	if err = unix.IoctlSetPointerInt(master, unix.TIOCSPTLCK, 0); err != nil {
 		return fmt.Errorf("unlockpt: %w", err)
 	}
 

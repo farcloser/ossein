@@ -262,17 +262,17 @@ func TestStackOverlayIsWritableOverAReadOnlyLower(t *testing.T) {
 	}
 
 	// A new file lands in the upper, not the read-only lower.
-	if err := os.WriteFile(filepath.Join(dest, "written"), []byte("NEW"), 0o644); err != nil {
+	if err = os.WriteFile(filepath.Join(dest, "written"), []byte("NEW"), 0o644); err != nil {
 		t.Fatalf("write through overlay: %v", err)
 	}
 
-	if _, err := os.Lstat(filepath.Join(window+overlayUpperDir, "written")); err != nil {
+	if _, err = os.Lstat(filepath.Join(window+overlayUpperDir, "written")); err != nil {
 		t.Fatalf("write did not land in the upper: %v", err)
 	}
 
 	// And copy-up works: modifying an image file must not fail against the
 	// read-only lower.
-	if err := os.WriteFile(filepath.Join(dest, "from-image"), []byte("EDITED"), 0o644); err != nil {
+	if err = os.WriteFile(filepath.Join(dest, "from-image"), []byte("EDITED"), 0o644); err != nil {
 		t.Fatalf("copy-up of an image file failed: %v", err)
 	}
 
@@ -284,7 +284,7 @@ func TestStackOverlayIsWritableOverAReadOnlyLower(t *testing.T) {
 	// The lower saw none of it: the new file is absent and the image file
 	// still carries its original bytes — the immutability half of the pinned
 	// property.
-	if _, err := os.Lstat(filepath.Join(window+overlayLowerDir, "written")); !errors.Is(err, os.ErrNotExist) {
+	if _, err = os.Lstat(filepath.Join(window+overlayLowerDir, "written")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("lower has the new file (lstat err %v); writes are reaching the image layer", err)
 	}
 

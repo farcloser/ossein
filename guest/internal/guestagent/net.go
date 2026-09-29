@@ -186,7 +186,7 @@ func writeRootfsFile(location, rel, content string) error {
 
 	// Replace, never follow: a symlink sitting at the destination must not
 	// redirect this write, and O_NOFOLLOW closes the recreate race.
-	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+	if err = os.Remove(target); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove before write %s: %w", target, err)
 	}
 
