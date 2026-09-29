@@ -14,6 +14,12 @@ import (
 	"github.com/mycophonic/primordium/bytesize"
 )
 
+// fs's two measurements (see runFS).
+const (
+	opStat = "stat"
+	opRead = "read"
+)
+
 // runFS isolates virtio-fs performance from the fork/exec path: it times pure file
 // operations on a target that lives either on the virtio-fs share (virtio mode:
 // operate on the binary in place, where it was launched) or on the container rootfs
@@ -27,20 +33,20 @@ import (
 //	                             caching: if virtio >> rootfs, the guest is not
 //	                             caching file data across opens.
 func runFS(args []string) error {
-	mode := "virtio"
-	if len(args) > 0 && (args[0] == "virtio" || args[0] == "rootfs") {
+	mode := modeVirtio
+	if len(args) > 0 && (args[0] == modeVirtio || args[0] == modeRootfs) {
 		mode = args[0]
 		args = args[1:]
 	}
 
-	operation := "stat"
-	if len(args) > 0 && (args[0] == "stat" || args[0] == "read") {
+	operation := opStat
+	if len(args) > 0 && (args[0] == opStat || args[0] == opRead) {
 		operation = args[0]
 		args = args[1:]
 	}
 
 	iterations := int64(20000)
-	if operation == "read" {
+	if operation == opRead {
 		iterations = 2000 // reads move real bytes; fewer iterations
 	}
 
@@ -56,7 +62,7 @@ func runFS(args []string) error {
 	}
 
 	target := self // virtio: the binary in place, on the share it was launched from
-	if mode == "rootfs" {
+	if mode == modeRootfs {
 		target = filepath.Join(os.TempDir(), "fs-target")
 		if err = copyFile(self, target); err != nil {
 			return fmt.Errorf("stage rootfs target: %w", err)
@@ -75,7 +81,7 @@ func runFS(args []string) error {
 	start := time.Now()
 
 	switch operation {
-	case "read":
+	case opRead:
 		for range iterations {
 			if err := readAll(target, buf); err != nil {
 				return err
@@ -102,7 +108,7 @@ func runFS(args []string) error {
 	elapsed := time.Since(start)
 
 	perop := float64(elapsed.Microseconds()) / float64(iterations)
-	if operation == "read" {
+	if operation == opRead {
 		mibps := float64(size) * float64(iterations) / elapsed.Seconds() / bytesize.MiB
 		_, _ = fmt.Fprintf(os.Stdout, "fs/%s/read=%d size=%d total=%s perop=%.2fus (%.0f MiB/s)\n",
 			mode, iterations, size, elapsed, perop, mibps)
