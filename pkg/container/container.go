@@ -72,13 +72,13 @@ const (
 	fsTypeExt4      = "ext4" // persistent cache disk filesystem
 	fsTypeTmpfs     = "tmpfs"
 
-	// defaultCPUs/defaultMemoryMiB apply when the spec leaves them zero.
-	defaultCPUs      uint   = 2
-	defaultMemoryMiB uint64 = 2048
+	// defaultCPUs/defaultMemory apply when the spec leaves them zero.
+	defaultCPUs   uint   = 2
+	defaultMemory uint64 = 2 * bytesize.GiB
 
-	// doctorMemoryMiB sizes Doctor's bare VM: no image, no rootfs, only
-	// vminitd and one tmpfs mount to exercise.
-	doctorMemoryMiB uint64 = 512
+	// doctorMemory sizes Doctor's bare VM: no image, no rootfs, only vminitd
+	// and one tmpfs mount to exercise.
+	doctorMemory uint64 = 512 * bytesize.MiB
 
 	// guestIface is the guest's single NIC; the guest agent DHCPs on it.
 	guestIface = "eth0"
@@ -94,11 +94,11 @@ const (
 	logKeyInstance = "instance"
 	logKeyErr      = "err"
 
-	// rootfsReserveMiB is RAM held back from the tmpfs rootfs for the kernel and
+	// rootfsReserve is RAM held back from the tmpfs rootfs for the kernel and
 	// container processes. tmpfs pages ARE guest RAM and the guest has no swap,
 	// so the rootfs is sized to (memory - reserve): at the 4 GiB run default this
 	// yields a 3 GiB rootfs, and it scales 1:1 with --memory above the reserve.
-	rootfsReserveMiB uint64 = 1024
+	rootfsReserve uint64 = bytesize.GiB
 
 	// closeFlushTimeout bounds Close's cache-disk flush (Sync + Umounts).
 	// 60s mirrors `ossein stop`'s default --grace for the same shutdown.
@@ -112,8 +112,8 @@ const (
 // 76 MiB rootfs while --memory 1024 got 512 MiB: more memory, less rootfs.
 func rootfsSizeFromMemory(mem uint64) uint64 {
 	half := mem / 2
-	if mem > rootfsReserveMiB && mem-rootfsReserveMiB > half {
-		return mem - rootfsReserveMiB
+	if mem > rootfsReserve && mem-rootfsReserve > half {
+		return mem - rootfsReserve
 	}
 
 	return half
@@ -159,7 +159,7 @@ type RunSpec struct {
 	Privileged bool
 	Network    bool
 	CPUs       uint
-	MemoryMiB  uint64
+	Memory     uint64      // guest RAM, in bytes; zero = the default
 	Mounts     []Mount     // host dir → guest path (virtio-fs)
 	Disks      []DiskMount // host ext4 image → guest mountpoint (virtio-blk, persistent)
 	ConsoleLog string      // guest console log path; empty = temp file
@@ -243,8 +243,8 @@ func guestRootfs(instanceID string) string { return "/run/container/" + instance
 // Deliberately NOT nosuid: images legitimately ship setuid binaries (su, ping)
 // and docker does not strip them. The container's own /dev is a separate tmpfs
 // (see pkg/ocispec) and must stay dev-capable for /dev/null and friends.
-func rootfsMountOpts(sizeMiB uint64) []string {
-	return []string{"mode=0755", "nodev", fmt.Sprintf("size=%dm", sizeMiB)}
+func rootfsMountOpts(size uint64) []string {
+	return []string{"mode=0755", "nodev", fmt.Sprintf("size=%dm", size/bytesize.MiB)}
 }
 
 // Boot pulls the image, boots the VM, materializes the rootfs, and configures
@@ -338,9 +338,9 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 		cpus = defaultCPUs
 	}
 
-	mem := spec.MemoryMiB
+	mem := spec.Memory
 	if mem == 0 {
-		mem = defaultMemoryMiB
+		mem = defaultMemory
 	}
 
 	consoleLog := spec.ConsoleLog
@@ -348,7 +348,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 		consoleLog = filepath.Join(dir, "console.log")
 	}
 
-	rootfsSizeMiB := rootfsSizeFromMemory(mem)
+	rootfsSize := rootfsSizeFromMemory(mem)
 
 	// The whole materialization plan rides the kernel cmdline: vminitd mounts
 	// the tmpfs and extracts the blob AT INIT, overlapping the agent
@@ -356,7 +356,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	// RPCs, and copyInRootfs merely awaits the result.
 	rootfsPath := guestRootfs(instanceID)
 	rootfsPlan := fmt.Sprintf("%s%s:%s:%s", rootfsPlanParam, rootfsBlobSerial, rootfsPath,
-		strings.Join(rootfsMountOpts(rootfsSizeMiB), ","))
+		strings.Join(rootfsMountOpts(rootfsSize), ","))
 
 	// Networking is Virtualization.framework's own NAT now: no host-side stack
 	// to start, own or tear down — the VM either has a NIC on Apple's subnet or
@@ -370,7 +370,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 
 	stageDur, stageAt = lap()
 	logger.InfoContext(ctx, "microVM created",
-		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memory_mib", mem),
+		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memory_mib", mem/bytesize.MiB),
 		slog.String("console", consoleLog), stageDur, stageAt)
 
 	if err = machine.Start(); err != nil {
@@ -474,7 +474,7 @@ func vmConfig(
 		Kernel:          art.Kernel,
 		Initfs:          art.Initfs,
 		CPUs:            cpus,
-		Memory:          mem * bytesize.MiB,
+		Memory:          mem,
 		ConsoleLog:      consoleLog,
 		Network:         spec.Network,
 		Shares:          shares,
@@ -520,7 +520,7 @@ func Doctor(ctx context.Context, art Artifacts, consoleLog string) error {
 		Kernel:     art.Kernel,
 		Initfs:     art.Initfs,
 		CPUs:       1,
-		Memory:     doctorMemoryMiB * bytesize.MiB,
+		Memory:     doctorMemory,
 		ConsoleLog: consoleLog,
 	})
 	if err != nil {

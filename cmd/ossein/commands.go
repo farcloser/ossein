@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mycophonic/primordium/bytesize"
 	"github.com/mycophonic/primordium/filesystem"
 	"github.com/mycophonic/primordium/filesystem/dirs"
 	"golang.org/x/sys/unix"
@@ -408,7 +409,7 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 		Privileged: c.Privileged,
 		Network:    c.Network,
 		CPUs:       c.CPUs,
-		MemoryMiB:  c.Memory,
+		Memory:     c.Memory * bytesize.MiB,
 		Mounts:     mounts,
 		ConsoleLog: c.ConsoleLog,
 		Stdout:     os.Stdout,
@@ -759,7 +760,7 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 		Privileged: true,
 		Network:    true,
 		CPUs:       c.CPUs,
-		MemoryMiB:  c.Memory,
+		Memory:     c.Memory * bytesize.MiB,
 		ConsoleLog: c.ConsoleLog,
 		Disks:      []container.DiskMount{{ImagePath: vol.Path, GuestPath: buildkitDataDir}},
 		Stdout:     bkLogs,

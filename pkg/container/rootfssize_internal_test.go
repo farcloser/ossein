@@ -2,11 +2,16 @@
 
 package container
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/mycophonic/primordium/bytesize"
+)
 
 func TestRootfsSizeFromMemory(t *testing.T) {
 	t.Parallel()
 
+	// In MiB, the scale the cases were reasoned in.
 	cases := []struct {
 		mem, want uint64
 	}{
@@ -20,8 +25,8 @@ func TestRootfsSizeFromMemory(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		if got := rootfsSizeFromMemory(tc.mem); got != tc.want {
-			t.Errorf("rootfsSizeFromMemory(%d) = %d, want %d", tc.mem, got, tc.want)
+		if got := rootfsSizeFromMemory(tc.mem * bytesize.MiB); got != tc.want*bytesize.MiB {
+			t.Errorf("rootfsSizeFromMemory(%d MiB) = %d, want %d MiB", tc.mem, got, tc.want)
 		}
 	}
 
@@ -31,7 +36,7 @@ func TestRootfsSizeFromMemory(t *testing.T) {
 	prev := uint64(0)
 
 	for mem := uint64(1); mem <= 16384; mem++ {
-		got := rootfsSizeFromMemory(mem)
+		got := rootfsSizeFromMemory(mem * bytesize.MiB)
 		if got < prev {
 			t.Fatalf("non-monotonic: rootfsSizeFromMemory(%d) = %d < %d at mem-1", mem, got, prev)
 		}

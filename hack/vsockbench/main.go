@@ -37,6 +37,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mycophonic/primordium/bytesize"
 	"github.com/mycophonic/primordium/filesystem/dirs"
 
 	"github.com/farcloser/ossein/pkg/container"
@@ -123,13 +124,13 @@ func run(opts options) error {
 	defer func() { _ = cache.Close() }()
 
 	spec := container.RunSpec{
-		Image:     opts.image,
-		Command:   []string{guestPeer, guestSock},
-		CPUs:      opts.cpus,
-		MemoryMiB: opts.memMiB,
-		Mounts:    []container.Mount{{Host: absBench, Dest: guestBench, ReadOnly: true}},
-		Stdout:    os.Stderr,
-		Stderr:    os.Stderr,
+		Image:   opts.image,
+		Command: []string{guestPeer, guestSock},
+		CPUs:    opts.cpus,
+		Memory:  opts.memMiB * bytesize.MiB,
+		Mounts:  []container.Mount{{Host: absBench, Dest: guestBench, ReadOnly: true}},
+		Stdout:  os.Stderr,
+		Stderr:  os.Stderr,
 	}
 
 	inst, _, err := container.Boot(ctx, container.Artifacts{Kernel: opts.kernel, Initfs: opts.initfs}, cache, spec)
