@@ -195,6 +195,10 @@ linters:
           - revive
 
   settings:
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+      require-specific: true
     mnd:
       ignored-numbers: ["2", "3", "4", "5", "6", "7", "8", "9", "16", "20", "24", "32", "0xf", "0x1f", "0x3", "0xFF", "0xE0", "0x03", "0x0F"]
     iface:
@@ -422,6 +426,7 @@ linters:
     staticcheck:
       checks:
         - all
+        - -ST1003 # revive's var-naming is the one naming check, as in limen v0.6.1's baseline
 
 formatters:
   settings:
