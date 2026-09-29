@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mycophonic/primordium/bytesize"
+
 	"github.com/farcloser/ossein/internal/cli"
 )
 
@@ -129,14 +131,6 @@ func (c *runCmd) osseinArgs() ([]string, error) {
 const (
 	decimal = 10
 	bits64  = 64
-
-	// Binary units, as docker reads every --memory suffix; mebi is also
-	// ossein's --memory unit.
-	kibi = 1 << 10
-	mebi = 1 << 20
-	gibi = 1 << 30
-	tebi = 1 << 40
-	pebi = 1 << 50
 )
 
 // memorySpec is docker's --memory grammar (go-units' RAMInBytes): a number,
@@ -144,19 +138,20 @@ const (
 // "b" — so 8g, 8G, 8gb, 8GiB and 1.5g all parse, and every unit is binary.
 var memorySpec = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?) ?([kKmMgGtTpP])?[iI]?[bB]?$`)
 
-// memoryUnit is the byte multiplier for a memorySpec unit letter.
+// memoryUnit is the byte multiplier for a memorySpec unit letter: binary,
+// as docker reads every --memory suffix.
 func memoryUnit(letter string) float64 {
 	switch strings.ToLower(letter) {
 	case "k":
-		return kibi
+		return bytesize.KiB
 	case "m":
-		return mebi
+		return bytesize.MiB
 	case "g":
-		return gibi
+		return bytesize.GiB
 	case "t":
-		return tebi
+		return bytesize.TiB
 	case "p":
-		return pebi
+		return bytesize.PiB
 	default:
 		return 1
 	}
@@ -195,5 +190,5 @@ func parseMemoryMiB(value string) (uint64, error) {
 		return 0, fmt.Errorf("%w: --memory %q is not a positive size", errUnsupported, value)
 	}
 
-	return max(uint64(math.Ceil(bytes/mebi)), 1), nil
+	return max(uint64(math.Ceil(bytes/bytesize.MiB)), 1), nil
 }
