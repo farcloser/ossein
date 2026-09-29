@@ -136,12 +136,17 @@ func NewCache() (Cache, error) {
 		return nil, fmt.Errorf("%w: locating cache dir: %w", ErrCache, err)
 	}
 
-	return openCache(root)
+	store, err := openCache(root)
+	if err != nil {
+		return nil, err
+	}
+
+	return store, nil
 }
 
 // openCache opens the content store at root (tests inject a temp dir).
 // content.New creates root (and its subdirs) itself, so no MkdirAll here.
-func openCache(root string) (Cache, error) {
+func openCache(root string) (*content.Store, error) {
 	store, err := content.New(root, nil) // nil opts → default 50GB quota
 	if err != nil {
 		return nil, fmt.Errorf("%w: opening content store: %w", ErrCache, err)
