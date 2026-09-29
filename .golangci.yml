@@ -151,7 +151,6 @@ linters:
     - gomodguard # we use depguard instead
     - lll # provided by golines
     - loggercheck # better dealt with by specialized libraries
-    - mnd # already provided by revive add-constant
     - nakedret # provided by revive
     - predeclared # provided by revive
 
@@ -174,8 +173,9 @@ linters:
           - perfsprint
           - depguard
           - goconst
+          - mnd
       - path: _test.go
-        text: "add-constant|cognitive-complexity"
+        text: "cognitive-complexity"
         linters:
           - revive
       # hack/bench is a measurement harness — closest in spirit to test code, so
@@ -190,11 +190,13 @@ linters:
         linters:
           - err113
       - path: ^hack/bench/
-        text: "add-constant|cognitive-complexity"
+        text: "cognitive-complexity"
         linters:
           - revive
 
   settings:
+    mnd:
+      ignored-numbers: ["2", "3", "4", "5", "6", "7", "8", "9", "16", "20", "24", "32", "0xf", "0x1f", "0x3", "0xFF", "0xE0", "0x03", "0x0F"]
     iface:
       enable: [identical, opaque, unexported]
     gocritic:
@@ -277,6 +279,8 @@ linters:
         - name: function-length
           arguments: [100, 0]
         - name: add-constant
+          # mnd for numbers, goconst for strings, as in limen v0.6.1's baseline.
+          disabled: true
           arguments:
             - allowFloats: "0.0,1.0"
               allowInts: "0,1,2,3,4,5,6,7,8,9,-1,16,20,24,32,0xf,0x1f,0x3,0x1,0xFF,0xE0,0x03,0x0F,0x00"
