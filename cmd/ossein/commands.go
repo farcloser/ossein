@@ -70,7 +70,7 @@ const (
 	// and snapshots; backing it with a per-project ext4 volume is what makes the
 	// cache survive the ephemeral VM. buildkitCacheSize is the sparse image size.
 	buildkitDataDir   = "/var/lib/buildkit"
-	buildkitCacheSize = 20 << 30 // 20 GiB, sparse (grows as used)
+	buildkitCacheSize = 20 * bytesize.GiB // sparse: grows as used
 
 	// bkReadyTimeout bounds how long detach waits for the backgrounded
 	// buildkitd to answer on its socket before giving up and killing the child;
