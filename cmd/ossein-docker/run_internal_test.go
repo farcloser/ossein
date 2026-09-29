@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alecthomas/kong"
+	"github.com/mycophonic/primordium/bytesize"
 )
 
 // parseRun runs the real kong grammar over a docker-shaped argv and returns
@@ -43,7 +44,7 @@ func TestRunTranslatesBuildCurlInvocation(t *testing.T) {
 	}
 
 	want := []string{
-		"run", "--cpus", "4", "--memory", "8192", "--rm", "--workdir", "/w", "--platform", "linux/amd64",
+		"run", "--cpus", "4", "--memory", "8589934592B", "--rm", "--workdir", "/w", "--platform", "linux/amd64",
 		"--pull", "missing", "--env-file", "/dev/fd/63", "--volume", "/w:/w",
 		"--", "debian@sha256:abc", "sh", "-c", "./_ci-linux-debian.sh",
 	}
@@ -61,10 +62,10 @@ func TestRunKeepsCommasAndCombinedShortFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// No --cpus / --memory: docker's "no limit", spelled 0 for ossein (the
+	// No --cpus / --memory: docker's "no limit", spelled zero for ossein (the
 	// whole host), never ossein's own defaults.
 	want := []string{
-		"run", "--cpus", "0", "--memory", "0", "--no-network", "--interactive", "--tty", "--user", "1000:1000",
+		"run", "--cpus", "0", "--memory", "0B", "--no-network", "--interactive", "--tty", "--user", "1000:1000",
 		"--pull", "missing", "--env", "LIST=a,b", "--env", "HOME", "--", "img", "--not-a-flag",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -116,23 +117,26 @@ func TestStopRequiresAnID(t *testing.T) {
 	}
 }
 
-func TestParseMemoryMiB(t *testing.T) {
+func TestParseMemory(t *testing.T) {
 	t.Parallel()
 
-	// docker's grammar: an optional decimal, a unit letter, optional i and b.
+	// docker's grammar: an optional decimal, a unit letter, optional i and b;
+	// every unit is binary, and a bare number counts bytes.
 	for spec, want := range map[string]uint64{
-		"8g": 8192, "8G": 8192, "8gb": 8192, "8GiB": 8192, "1.5g": 1536, "512m": 512, "512MB": 512,
-		"1024k": 1, "1": 1, "1048577": 2, "1048576b": 1, "1500k": 2, "1t": 1 << 20,
+		"8g": 8 * bytesize.GiB, "8G": 8 * bytesize.GiB, "8gb": 8 * bytesize.GiB, "8GiB": 8 * bytesize.GiB,
+		"1.5g": 1536 * bytesize.MiB, "512m": 512 * bytesize.MiB, "512MB": 512 * bytesize.MiB,
+		"1024k": bytesize.MiB, "1": 1, "1048577": bytesize.MiB + 1, "1048576b": bytesize.MiB,
+		"1500k": 1500 * bytesize.KiB, "1t": bytesize.TiB, "0.5": 1,
 	} {
-		got, err := parseMemoryMiB(spec)
+		got, err := parseMemory(spec)
 		if err != nil || got != want {
-			t.Errorf("parseMemoryMiB(%q) = (%d, %v), want %d", spec, got, err, want)
+			t.Errorf("parseMemory(%q) = (%d, %v), want %d", spec, got, err, want)
 		}
 	}
 
-	for _, bad := range []string{"", "0", "g", "abc", "-1", "1x", "1 g b"} {
-		if _, err := parseMemoryMiB(bad); !errors.Is(err, errUnsupported) {
-			t.Errorf("parseMemoryMiB(%q) = %v, want errUnsupported", bad, err)
+	for _, bad := range []string{"", "0", "g", "abc", "-1", "1x", "1 g b", "9000000t"} {
+		if _, err := parseMemory(bad); !errors.Is(err, errUnsupported) {
+			t.Errorf("parseMemory(%q) = %v, want errUnsupported", bad, err)
 		}
 	}
 }

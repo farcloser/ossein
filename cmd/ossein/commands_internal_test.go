@@ -11,6 +11,11 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/alecthomas/kong"
+	"github.com/mycophonic/primordium/bytesize"
+
+	"github.com/farcloser/ossein/internal/cli"
 )
 
 func TestValidateInstanceID(t *testing.T) {
@@ -116,5 +121,46 @@ func TestProbeSocketChainReset(t *testing.T) { //nolint:paralleltest // swaps th
 	// report ready just because the error satisfies net.Error.
 	if probeSocketChain(t.Context(), "ignored") {
 		t.Fatal("probeSocketChain: non-timeout net.Error (reset) probed as ready")
+	}
+}
+
+func TestMemoryFlagTakesASizeWithAUnit(t *testing.T) {
+	t.Parallel()
+
+	parse := func(args ...string) (CLI, error) {
+		var root CLI
+
+		parser, err := kong.New(&root, kong.Vars{"buildkit_image": "img", "log_levels": cli.LogLevels})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = parser.Parse(args)
+
+		return root, err
+	}
+
+	for _, check := range []struct {
+		args []string
+		want memorySize
+	}{
+		{[]string{"run", "img"}, 4 * bytesize.GiB},
+		{[]string{"run", "--memory", "512MiB", "img"}, 512 * bytesize.MiB},
+		{[]string{"run", "--memory", "1.5GB", "img"}, 1500 * bytesize.MB},
+		{[]string{"run", "--memory", "0", "img"}, cli.WholeHost},
+	} {
+		root, err := parse(check.args...)
+		if err != nil || root.Run.Memory != check.want {
+			t.Errorf("%q: memory = (%d, %v), want %d", check.args, root.Run.Memory, err, check.want)
+		}
+	}
+
+	if root, err := parse("buildkit"); err != nil || root.Buildkit.Memory != 8*bytesize.GiB {
+		t.Errorf("buildkit: memory = (%d, %v), want 8 GiB", root.Buildkit.Memory, err)
+	}
+
+	// 512 meant MiB before --memory took units: never 512 bytes.
+	if _, err := parse("run", "--memory", "512", "img"); !errors.Is(err, cli.ErrSizeUnit) {
+		t.Errorf("--memory 512 = %v, want ErrSizeUnit", err)
 	}
 }

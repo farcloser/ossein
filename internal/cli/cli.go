@@ -19,7 +19,7 @@ const ExitInternal = 125
 // WholeHost is the --cpus / --memory value that means "everything the host
 // has": docker's own spelling of no limit, and what the docker-shaped front
 // passes when a script sizes nothing. ossein resolves it against what
-// Virtualization.framework allows (pkg/vm HostMaxCPUs, HostMaxMemoryMiB);
+// Virtualization.framework allows (pkg/vm HostMaxCPUs, HostMaxMemory);
 // the front never computes it, because only the side that links the
 // framework knows the ceiling.
 const WholeHost = 0

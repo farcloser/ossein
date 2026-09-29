@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/mycophonic/primordium/bytesize"
 )
 
 // runFS isolates virtio-fs performance from the fork/exec path: it times pure file
@@ -68,7 +70,7 @@ func runFS(args []string) error {
 	}
 
 	size := fi.Size()
-	buf := make([]byte, 1<<20)
+	buf := make([]byte, bytesize.MiB)
 
 	start := time.Now()
 
@@ -101,7 +103,7 @@ func runFS(args []string) error {
 
 	perop := float64(elapsed.Microseconds()) / float64(iterations)
 	if operation == "read" {
-		mibps := float64(size) * float64(iterations) / elapsed.Seconds() / (1 << 20)
+		mibps := float64(size) * float64(iterations) / elapsed.Seconds() / bytesize.MiB
 		_, _ = fmt.Fprintf(os.Stdout, "fs/%s/read=%d size=%d total=%s perop=%.2fus (%.0f MiB/s)\n",
 			mode, iterations, size, elapsed, perop, mibps)
 

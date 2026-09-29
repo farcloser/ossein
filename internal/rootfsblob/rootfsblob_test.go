@@ -3,6 +3,8 @@ package rootfsblob_test
 import (
 	"testing"
 
+	"github.com/mycophonic/primordium/bytesize"
+
 	"github.com/farcloser/ossein/internal/rootfsblob"
 )
 
@@ -41,13 +43,13 @@ func TestSniff(t *testing.T) {
 		want rootfsblob.Format
 	}{
 		{"erofs", erofsHead(0), rootfsblob.FormatEROFS},
-		{"erofs with trailing bytes", erofsHead(4096), rootfsblob.FormatEROFS},
+		{"erofs with trailing bytes", erofsHead(4 * bytesize.KiB), rootfsblob.FormatEROFS},
 		{"lz4", lz4Head, rootfsblob.FormatLZ4},
 		{"plain tar", tarHead, rootfsblob.FormatTar},
 		{"empty", nil, rootfsblob.FormatTar},
 		{"truncated below the superblock", make([]byte, rootfsblob.EROFSSuperOffset), rootfsblob.FormatTar},
 		{"one byte short of the magic", make([]byte, rootfsblob.SniffLen-1), rootfsblob.FormatTar},
-		{"erofs magic at offset 0 is not erofs", append([]byte{0xE2, 0xE1, 0xF5, 0xE0}, make([]byte, 2048)...), rootfsblob.FormatTar},
+		{"erofs magic at offset 0 is not erofs", append([]byte{0xE2, 0xE1, 0xF5, 0xE0}, make([]byte, 2*bytesize.KiB)...), rootfsblob.FormatTar},
 		{"erofs magic mid-archive is not erofs", tarWithErofsBytesInside, rootfsblob.FormatTar},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

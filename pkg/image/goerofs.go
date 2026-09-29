@@ -32,12 +32,13 @@ import (
 	"strings"
 
 	goerofs "github.com/forkcloser/erofs"
+	"github.com/mycophonic/primordium/bytesize"
 )
 
 // erofsBlockSize pins the fs block size to the GUEST page size; the library
 // would otherwise be free to choose, and anything above 4096 is unmountable
 // on the 4KiB-page guest kernel (same constraint as mkfs.erofs -b4096).
-const erofsBlockSize = 4096
+const erofsBlockSize = 4 * bytesize.KiB
 
 // buildGoEROFS converts the flattened tar stream into an uncompressed EROFS
 // image in a temp file and returns it for the content store to consume.

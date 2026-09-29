@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mycophonic/primordium/bytesize"
+
 	"github.com/farcloser/ossein/pkg/volume"
 )
 
@@ -17,7 +19,7 @@ const (
 	// It must exceed 128 MiB: go-diskfs force-enables the ext4 resize inode and
 	// refuses any single-block-group image (≤128 MiB at 4 KiB blocks) with "no
 	// backup groups available" (see hack/build-initfs for the long story).
-	testImageSize = 192 * 1024 * 1024 // 192 MiB
+	testImageSize = 192 * bytesize.MiB
 
 	// ext4MagicOffset / ext4Magic mirror the superblock constants under test:
 	// s_magic sits at byte 1024+56, little-endian 0xEF53.

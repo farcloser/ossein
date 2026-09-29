@@ -26,6 +26,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/mdlayher/vsock"
+	"github.com/mycophonic/primordium/bytesize"
 	"golang.org/x/sys/unix"
 
 	"github.com/farcloser/ossein/guest/internal/guestagent"
@@ -135,7 +136,7 @@ func listenVsockRetry(port uint32, budget time.Duration) (*vsock.Listener, error
 const serverHeaderTimeout = 30 * time.Second
 
 // maxRequestBytes caps a single RPC request body (see the handler mux).
-const maxRequestBytes = 4 << 20 // 4 MiB
+const maxRequestBytes = 4 * bytesize.MiB
 
 // runInit performs PID-1 setup and serves the agent until the VM is stopped.
 func runInit() error {

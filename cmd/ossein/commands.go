@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alecthomas/kong"
+	"github.com/mycophonic/primordium/bytesize"
 	"github.com/mycophonic/primordium/filesystem"
 	"github.com/mycophonic/primordium/filesystem/dirs"
 	"golang.org/x/sys/unix"
@@ -30,18 +32,38 @@ import (
 	"github.com/farcloser/ossein/pkg/volume"
 )
 
+// memorySize is --memory: a size with a unit, in bytes (see cli.ParseSize).
+type memorySize uint64
+
+// Decode is kong's hook for reading a memorySize.
+func (m *memorySize) Decode(ctx *kong.DecodeContext) error {
+	var value string
+	if err := ctx.Scan.PopValueInto("size", &value); err != nil {
+		return fmt.Errorf("want a size like 4GiB: %w", err)
+	}
+
+	size, err := cli.ParseSize(value)
+	if err != nil {
+		return err // kong prefixes the flag's name.
+	}
+
+	*m = memorySize(size)
+
+	return nil
+}
+
 // sizeWholeHost resolves cli.WholeHost on either knob to what the host has;
-// explicit numbers pass through.
-func sizeWholeHost(cpus uint, memoryMiB uint64) (uint, uint64) {
+// explicit sizes pass through.
+func sizeWholeHost(cpus uint, memory memorySize) (uint, memorySize) {
 	if cpus == cli.WholeHost {
 		cpus = vm.HostMaxCPUs()
 	}
 
-	if memoryMiB == cli.WholeHost {
-		memoryMiB = vm.HostMaxMemoryMiB()
+	if memory == cli.WholeHost {
+		memory = memorySize(vm.HostMaxMemory())
 	}
 
-	return cpus, memoryMiB
+	return cpus, memory
 }
 
 const (
@@ -69,7 +91,7 @@ const (
 	// and snapshots; backing it with a per-project ext4 volume is what makes the
 	// cache survive the ephemeral VM. buildkitCacheSize is the sparse image size.
 	buildkitDataDir   = "/var/lib/buildkit"
-	buildkitCacheSize = 20 << 30 // 20 GiB, sparse (grows as used)
+	buildkitCacheSize = 20 * bytesize.GiB // sparse: grows as used
 
 	// bkReadyTimeout bounds how long detach waits for the backgrounded
 	// buildkitd to answer on its socket before giving up and killing the child;
@@ -101,12 +123,12 @@ const (
 // --- run ---
 
 type runCmd struct {
-	CPUs        uint   `default:"2"                   help:"vCPUs (0: every host CPU)"       name:"cpus"`
-	Memory      uint64 `default:"4096"                help:"memory MiB (0: all host memory)"`
-	Interactive bool   `help:"keep stdin open"        short:"i"`
-	TTY         bool   `help:"allocate a pseudo-TTY"  name:"tty"                             short:"t"`
-	Privileged  bool   `help:"grant all capabilities"`
-	Network     bool   `default:"true"                help:"outbound networking"             negatable:""`
+	CPUs        uint       `default:"2"                   help:"vCPUs (0: every host CPU)"                                     name:"cpus"`
+	Memory      memorySize `default:"4GiB"                help:"memory, with a unit: 4GiB, 512MiB, 1.5GB (0: all host memory)"`
+	Interactive bool       `help:"keep stdin open"        short:"i"`
+	TTY         bool       `help:"allocate a pseudo-TTY"  name:"tty"                                                           short:"t"`
+	Privileged  bool       `help:"grant all capabilities"`
+	Network     bool       `default:"true"                help:"outbound networking"                                           negatable:""`
 	// Rm is a no-op: every run owns a throwaway microVM that is always torn down
 	// on exit (see runCmd.Run's deferred Close). Accepted only so docker-shaped
 	// scripts that pass --rm don't fail on an unknown flag.
@@ -408,7 +430,7 @@ func (c *runCmd) Run(art *container.Artifacts) (err error) {
 		Privileged: c.Privileged,
 		Network:    c.Network,
 		CPUs:       c.CPUs,
-		MemoryMiB:  c.Memory,
+		Memory:     uint64(c.Memory),
 		Mounts:     mounts,
 		ConsoleLog: c.ConsoleLog,
 		Stdout:     os.Stdout,
@@ -596,8 +618,8 @@ func makeRaw(ctx context.Context, inst *container.Instance) func() {
 // --- buildkit ---
 
 type buildkitCmd struct {
-	CPUs   uint   `default:"4"    help:"vCPUs (0: every host CPU)"       name:"cpus"`
-	Memory uint64 `default:"8192" help:"memory MiB (0: all host memory)"`
+	CPUs   uint       `default:"4"    help:"vCPUs (0: every host CPU)"                                     name:"cpus"`
+	Memory memorySize `default:"8GiB" help:"memory, with a unit: 8GiB, 512MiB, 1.5GB (0: all host memory)"`
 	// The default is the digest-pinned image linked in at build time (main.buildkitImage,
 	// fed from the Justfile); kong interpolates it via kong.Vars.
 	Image      string `default:"${buildkit_image}"                                                                                             help:"buildkit image (digest-pinned by default)"`
@@ -759,7 +781,7 @@ func (c *buildkitCmd) Run(logger *slog.Logger, art *container.Artifacts, level s
 		Privileged: true,
 		Network:    true,
 		CPUs:       c.CPUs,
-		MemoryMiB:  c.Memory,
+		Memory:     uint64(c.Memory),
 		ConsoleLog: c.ConsoleLog,
 		Disks:      []container.DiskMount{{ImagePath: vol.Path, GuestPath: buildkitDataDir}},
 		Stdout:     bkLogs,
@@ -1003,7 +1025,7 @@ func (c *buildkitCmd) childCmd(
 		"--image", c.Image,
 		"--sock", sock,
 		"--cpus", strconv.FormatUint(uint64(c.CPUs), decimal),
-		"--memory", strconv.FormatUint(c.Memory, decimal),
+		"--memory", cli.FormatSize(uint64(c.Memory)),
 	}
 	if cacheLocal {
 		args = append(args, "--cache-local")

@@ -22,12 +22,14 @@ import (
 	"io"
 	"net"
 	"os"
+
+	"github.com/mycophonic/primordium/bytesize"
 )
 
 const (
 	modeRecv = 'R'
 	modeSend = 'S'
-	bufSize  = 1 << 20
+	bufSize  = bytesize.MiB
 )
 
 func main() {
