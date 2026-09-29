@@ -40,7 +40,9 @@ func runForkexec(args []string) error {
 		rest = rest[1:]
 	}
 
-	spawns := int64(20000)
+	const defaultSpawns = 20000
+
+	spawns := int64(defaultSpawns)
 
 	if len(rest) > 0 {
 		if v, err := strconv.ParseInt(rest[0], 10, 64); err == nil && v > 0 {
@@ -102,8 +104,10 @@ func copyExe(src, dst string) error {
 		return fmt.Errorf("read %s: %w", src, err)
 	}
 
+	const exeMode = 0o700 // owner-only, and executable: see above
+
 	// #nosec G306 G703 -- see above
-	if err := os.WriteFile(dst, content, 0o700); err != nil {
+	if err := os.WriteFile(dst, content, exeMode); err != nil {
 		return fmt.Errorf("write %s: %w", dst, err)
 	}
 

@@ -16,7 +16,9 @@ import (
 // across runtimes it also reflects the storage backend (ossein tmpfs vs docker
 // overlayfs) — a real, representative difference.
 func runFileio(args []string) error {
-	files := int64(50000)
+	const defaultFiles = 50000
+
+	files := int64(defaultFiles)
 
 	if len(args) > 0 {
 		if v, err := strconv.ParseInt(args[0], 10, 64); err == nil && v > 0 {
@@ -30,7 +32,9 @@ func runFileio(args []string) error {
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	data := make([]byte, 256) // small file, like most rootfs/source entries
+	const fileSize = 256 // small, like most rootfs/source entries
+
+	data := make([]byte, fileSize)
 
 	start := time.Now()
 
