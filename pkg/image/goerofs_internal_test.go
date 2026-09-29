@@ -10,6 +10,7 @@ import (
 	"time"
 
 	goerofs "github.com/forkcloser/erofs"
+	"github.com/mycophonic/primordium/bytesize"
 )
 
 // corpusTar builds an in-memory flattened-style tar exercising every entry
@@ -59,7 +60,8 @@ func corpusTar(t *testing.T) []byte {
 
 	write(&tar.Header{Typeflag: tar.TypeReg, Name: "bin/empty", Mode: 0o644, Size: 0}, nil)
 
-	big := bytes.Repeat([]byte("0123456789abcdef"), 65536) // 1 MiB
+	pattern := []byte("0123456789abcdef")
+	big := bytes.Repeat(pattern, bytesize.MiB/len(pattern))
 	write(&tar.Header{
 		Typeflag: tar.TypeReg, Name: "./big.bin", Mode: 0o600, Uid: 7, Gid: 8,
 		Size: int64(len(big)),
@@ -147,7 +149,7 @@ func TestGoEROFSFidelity(t *testing.T) {
 		}
 	}
 
-	if got, err := fs.ReadFile(img, "big.bin"); err != nil || len(got) != 1<<20 || got[17] != '1' {
+	if got, err := fs.ReadFile(img, "big.bin"); err != nil || len(got) != bytesize.MiB || got[17] != '1' {
 		t.Errorf("big.bin: err %v, len %d", err, len(got))
 	}
 

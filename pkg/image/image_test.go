@@ -21,6 +21,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/mycophonic/primordium/bytesize"
 	blobcache "github.com/mycophonic/primordium/store/cache"
 
 	"github.com/farcloser/ossein/internal/rootfsblob"
@@ -68,7 +69,7 @@ func TestCacheRootfsFlattensAndCaches(t *testing.T) {
 	}
 	defer func() { _ = cache.Close() }()
 
-	source, err := random.Image(1024, 2) // 1KiB across 2 layers
+	source, err := random.Image(bytesize.KiB, 2) // across 2 layers
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +134,7 @@ func TestCacheGarbageCollect(t *testing.T) {
 	}
 	defer func() { _ = cache.Close() }()
 
-	source, err := random.Image(2048, 1)
+	source, err := random.Image(2*bytesize.KiB, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -576,7 +577,7 @@ func TestImportResolvesOfflineAndFlattens(t *testing.T) {
 
 	defer func() { _ = cache.Close() }()
 
-	source, err := random.Image(1024, 2)
+	source, err := random.Image(bytesize.KiB, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

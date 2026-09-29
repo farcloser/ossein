@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mycophonic/primordium/bytesize"
 	"golang.org/x/sys/unix"
 
 	"github.com/farcloser/ossein/guest/internal/vmexec"
@@ -37,7 +38,7 @@ func TestSniffRootfsBlob(t *testing.T) {
 		return path
 	}
 
-	erofs := make([]byte, rootfsblob.SniffLen+4096)
+	erofs := make([]byte, rootfsblob.SniffLen+4*bytesize.KiB)
 	copy(erofs[rootfsblob.EROFSSuperOffset:], []byte{0xE2, 0xE1, 0xF5, 0xE0})
 
 	for _, testCase := range []struct {
