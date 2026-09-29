@@ -52,13 +52,12 @@ const (
 	guestBench   = "/bench"
 	guestPeer    = "/bench/vsockpeer"
 	guestSock    = "/tmp/vsockpeer.sock"
-	mib          = 1 << 20
 	peerSettle   = 500 * time.Millisecond
 	dialAttempts = 40
 	dialWait     = 250 * time.Millisecond
-	defaultBytes = 2 << 30
+	defaultSize  = 2 * bytesize.GiB
 	defaultCPUs  = 2
-	defaultMem   = 2048
+	defaultMem   = 2 * bytesize.GiB
 	defaultRuns  = 3
 )
 
@@ -70,26 +69,31 @@ var (
 // options is everything the flags decide.
 type options struct {
 	image, kernel, initfs, benchDir, label string
-	nbytes                                 int64
+	size                                   int64 // per stream per run, in bytes
 	streams, runs                          int
 	cpus                                   uint
-	memMiB                                 uint64
+	memory                                 uint64 // guest RAM, in bytes
 }
 
 func main() {
-	var opts options
+	var (
+		opts      options
+		memoryMiB uint64
+	)
 
 	flag.StringVar(&opts.image, "image", "debian", "container image (needs nothing but a shell)")
 	flag.StringVar(&opts.kernel, "kernel", "pkg/guestartifacts/kernel-arm64", "guest kernel")
 	flag.StringVar(&opts.initfs, "initfs", "build/initfs.cpio", "vminitd initfs (the guest agent under test)")
 	flag.StringVar(&opts.benchDir, "bench-dir", "build", "host dir holding vsockpeer; bind-mounted at "+guestBench)
-	flag.Int64Var(&opts.nbytes, "bytes", defaultBytes, "bytes per stream per run")
+	flag.Int64Var(&opts.size, "bytes", defaultSize, "bytes per stream per run")
 	flag.IntVar(&opts.streams, "streams", 1, "concurrent connections")
 	flag.IntVar(&opts.runs, "runs", defaultRuns, "runs per direction")
 	flag.UintVar(&opts.cpus, "cpus", defaultCPUs, "guest vCPUs")
-	flag.Uint64Var(&opts.memMiB, "memory", defaultMem, "guest memory MiB")
+	flag.Uint64Var(&memoryMiB, "memory", defaultMem/bytesize.MiB, "guest memory MiB")
 	flag.StringVar(&opts.label, "label", "", "free-text label echoed in the result lines")
 	flag.Parse()
+
+	opts.memory = memoryMiB * bytesize.MiB
 
 	if err := run(opts); err != nil {
 		fmt.Fprintln(os.Stderr, "vsockbench:", err)
@@ -127,7 +131,7 @@ func run(opts options) error {
 		Image:   opts.image,
 		Command: []string{guestPeer, guestSock},
 		CPUs:    opts.cpus,
-		Memory:  opts.memMiB * bytesize.MiB,
+		Memory:  opts.memory,
 		Mounts:  []container.Mount{{Host: absBench, Dest: guestBench, ReadOnly: true}},
 		Stdout:  os.Stderr,
 		Stderr:  os.Stderr,
@@ -163,21 +167,21 @@ func run(opts options) error {
 
 func measure(ctx context.Context, hostSock string, opts options) error {
 	_, _ = fmt.Fprintf(os.Stdout, "# vsockbench label=%q image=%s bytes=%d streams=%d runs=%d\n",
-		opts.label, opts.image, opts.nbytes, opts.streams, opts.runs)
+		opts.label, opts.image, opts.size, opts.streams, opts.runs)
 
 	for _, direction := range []struct {
 		name string
 		mode byte
 	}{{"guest->host", modeRecv}, {"host->guest", modeSend}} {
 		for runIdx := range opts.runs {
-			elapsed, err := oneRun(ctx, hostSock, direction.mode, opts.nbytes, opts.streams)
+			elapsed, err := oneRun(ctx, hostSock, direction.mode, opts.size, opts.streams)
 			if err != nil {
 				return fmt.Errorf("%s run %d: %w", direction.name, runIdx, err)
 			}
 
-			total := float64(opts.nbytes) * float64(opts.streams)
+			total := float64(opts.size) * float64(opts.streams)
 			_, _ = fmt.Fprintf(os.Stdout, "%-12s streams=%d run=%d  %8.1f MiB/s  (%.2fs)\n",
-				direction.name, opts.streams, runIdx, total/mib/elapsed.Seconds(), elapsed.Seconds())
+				direction.name, opts.streams, runIdx, total/bytesize.MiB/elapsed.Seconds(), elapsed.Seconds())
 		}
 	}
 
