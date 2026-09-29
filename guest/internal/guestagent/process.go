@@ -78,6 +78,8 @@ func procKey(id, containerID string) string {
 // container's stdio to the host's vsock ports, runs the full childSetup
 // (mounts, pivot_root, caps, uid), then blocks on a start gate. It returns once
 // the child reports ready.
+//
+//nolint:gocognit // one ordered acquisition sequence under a shared rollback (abort, then kill).
 func (a *Agent) CreateProcess(ctx context.Context, req *pb.CreateProcessRequest) (*pb.CreateProcessResponse, error) {
 	key := procKey(req.GetId(), req.GetContainerID())
 
