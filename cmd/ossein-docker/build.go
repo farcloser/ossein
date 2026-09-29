@@ -238,8 +238,6 @@ func (c *buildCmd) progressMode() progressui.DisplayMode {
 // docker's `--build-arg` values: KEY=VALUE, or a bare KEY whose value comes
 // from the host environment via lookup (unset → the arg is not passed, as
 // docker does). noCache/pull legitimately ARE forwarded CLI flags.
-//
-//revive:disable-next-line:flag-parameter
 func frontendAttrs(
 	filename, platform, target string,
 	noCache, pull bool,

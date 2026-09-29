@@ -112,8 +112,6 @@ func CentralDir(keySource string) (string, error) {
 // must Close it once its VM has stopped.
 // The gitignore bool is a deliberate mode switch, not hidden control flow:
 // central caches must never write into the tree, project-local ones must.
-//
-//revive:disable-next-line:flag-parameter
 func Ensure(dir string, sizeBytes int64, gitignore bool) (*Volume, error) {
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return nil, fmt.Errorf("creating cache dir: %w", err)

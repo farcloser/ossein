@@ -175,7 +175,7 @@ linters:
           - depguard
           - goconst
       - path: _test.go
-        text: "add-constant|cognitive-complexity|confusing-results|nested-structs|use-waitgroup-go|unchecked-type-assertion|unhandled-error|unused-receiver"
+        text: "add-constant|cognitive-complexity"
         linters:
           - revive
       # hack/bench is a measurement harness — closest in spirit to test code, so
@@ -283,6 +283,49 @@ linters:
           arguments: [30]
         - name: max-public-structs
           arguments: [10]
+        # As limen v0.6.1's baseline sets them.
+        - name: range-val-address
+          disabled: true
+        - name: range-val-in-closure
+          disabled: true
+        - name: unhandled-error
+          disabled: true
+        - name: constant-logical-expr
+          disabled: true
+        - name: unconditional-recursion
+          disabled: true
+        - name: unreachable-code
+          disabled: true
+        - name: atomic
+          disabled: true
+        - name: waitgroup-by-value
+          disabled: true
+        - name: string-of-int
+          disabled: true
+        - name: use-any
+          disabled: true
+        - name: use-waitgroup-go
+          disabled: true
+        - name: use-slices-sort
+          disabled: true
+        - name: redundant-build-tag
+          disabled: true
+        - name: use-errors-new
+          disabled: true
+        - name: errorf
+          disabled: true
+        - name: bool-literal-in-expr
+          disabled: true
+        - name: identical-branches
+          disabled: true
+        - name: empty-lines
+          disabled: true
+        - name: flag-parameter
+          disabled: true
+        - name: exported
+          arguments: [checkPublicInterface]
+        - name: enforce-switch-style
+          arguments: [allowNoDefault]
 
         - name: line-length-limit
           # Formatter `golines` takes care of this.
@@ -291,14 +334,6 @@ linters:
           # Formatter `goimports` writes an explicit alias on an import path
           # whose last element is a version (pkg/v1); this rule would reject it.
           disabled: true
-        - name: unhandled-error
-          arguments:
-            - "fmt.Print"
-            - "fmt.Println"
-            - "fmt.Printf"
-            - "fmt.Fprint"
-            - "fmt.Fprintln"
-            - "fmt.Fprintf"
 
     depguard:
       rules:
