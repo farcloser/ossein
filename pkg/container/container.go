@@ -635,32 +635,11 @@ func (i *Instance) ExposeUnix(ctx context.Context, containerPath, hostPath strin
 		_ = i.agent.StopVsockProxy(stopCtx, proxyID)
 	}
 
-	// Clear a stale socket file, but never hijack a live one: if something
-	// still answers on it, the caller pointed two instances at one path. Only
-	// two outcomes mean "free": no file (ENOENT) or a file nothing listens on
-	// (ECONNREFUSED). Anything else — a cancelled ctx, EACCES, ENFILE — is NOT
-	// evidence the socket is dead, and removing it on such an error would
-	// unlink another live instance's endpoint out from under its clients.
-	probe := net.Dialer{Timeout: time.Second}
-
-	conn, err := probe.DialContext(ctx, "unix", hostPath)
-
-	switch {
-	case err == nil:
-		_ = conn.Close()
-
+	if err := claimHostSocket(ctx, hostPath); err != nil {
 		stopProxy()
 
-		return nil, fmt.Errorf("%w: %s", ErrSocketInUse, hostPath)
-	case errors.Is(err, fs.ErrNotExist), errors.Is(err, unix.ECONNREFUSED):
-		// Free: nothing there, or a stale file left by a dead process.
-	default:
-		stopProxy()
-
-		return nil, fmt.Errorf("probing host socket %s: %w", hostPath, err)
+		return nil, err
 	}
-
-	_ = os.Remove(hostPath)
 
 	var listenCfg net.ListenConfig
 
@@ -671,27 +650,7 @@ func (i *Instance) ExposeUnix(ctx context.Context, containerPath, hostPath strin
 		return nil, fmt.Errorf("host socket %s: %w", hostPath, err)
 	}
 
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return // listener closed by the closer below
-			}
-
-			go func() {
-				defer func() { _ = conn.Close() }()
-
-				gconn, err := i.vm.Connect(port)
-				if err != nil {
-					return
-				}
-
-				defer func() { _ = gconn.Close() }()
-
-				bidiPipe(conn, gconn)
-			}()
-		}
-	}()
+	go i.serveProxy(listener, port)
 
 	// The closer outlives the ExposeUnix ctx by design (teardown must run
 	// even after the caller's ctx died), hence its own short deadline.
@@ -701,6 +660,33 @@ func (i *Instance) ExposeUnix(ctx context.Context, containerPath, hostPath strin
 
 		stopProxy()
 	}, nil
+}
+
+// claimHostSocket clears a stale socket file at hostPath, but never hijacks a
+// live one: if something still answers on it, the caller pointed two
+// instances at one path. Only two outcomes mean "free": no file (ENOENT) or a
+// file nothing listens on (ECONNREFUSED). Anything else — a cancelled ctx,
+// EACCES, ENFILE — is NOT evidence the socket is dead, and removing it on
+// such an error would unlink another live instance's endpoint out from under
+// its clients.
+func claimHostSocket(ctx context.Context, hostPath string) error {
+	probe := net.Dialer{Timeout: time.Second}
+
+	conn, err := probe.DialContext(ctx, "unix", hostPath)
+
+	switch {
+	case err == nil:
+		_ = conn.Close()
+
+		return fmt.Errorf("%w: %s", ErrSocketInUse, hostPath)
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, unix.ECONNREFUSED):
+		// Free: nothing there, or a stale file left by a dead process.
+		_ = os.Remove(hostPath)
+
+		return nil
+	default:
+		return fmt.Errorf("probing host socket %s: %w", hostPath, err)
+	}
 }
 
 // Close tears everything down: VM first (kills all guest state), then the
@@ -748,6 +734,30 @@ func (i *Instance) Close(ctx context.Context) {
 		slog.Duration("dur", flushDur+agentDur+vmDur),
 		slog.Duration("cache_flush", flushDur), slog.Duration("agent_close", agentDur),
 		slog.Duration("vm_stop", vmDur))
+}
+
+// serveProxy accepts on the host listener until ExposeUnix's closer closes
+// it, piping each connection to the guest's vsock port for the proxy.
+func (i *Instance) serveProxy(listener net.Listener, port uint32) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+
+		go func() {
+			defer func() { _ = conn.Close() }()
+
+			gconn, err := i.vm.Connect(port)
+			if err != nil {
+				return
+			}
+
+			defer func() { _ = gconn.Close() }()
+
+			bidiPipe(conn, gconn)
+		}()
+	}
 }
 
 // startVM sizes and creates the instance's microVM, with the pinned rootfs
