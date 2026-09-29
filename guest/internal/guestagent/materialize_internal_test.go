@@ -119,7 +119,7 @@ func mountTmpfs(t *testing.T, opts string) (string, uintptr) {
 
 // plantDeviceInLower creates the overlay dirs under dest and puts a character
 // device in the lower — standing in for one an image shipped.
-func plantDeviceInLower(t *testing.T, dest string) string {
+func plantDeviceInLower(t *testing.T, dest string) {
 	t.Helper()
 
 	if err := makeOverlayDirs(dest); err != nil {
@@ -130,8 +130,6 @@ func plantDeviceInLower(t *testing.T, dest string) string {
 	if err := unix.Mknod(node, unix.S_IFCHR|0o666, int(unix.Mkdev(1, 5))); err != nil {
 		t.Fatalf("mknod: %v", err)
 	}
-
-	return node
 }
 
 // TestStackOverlayHonoursMountFlags is the security regression test for the
