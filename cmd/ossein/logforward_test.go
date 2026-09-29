@@ -126,8 +126,8 @@ func TestLogForwarderNonJSONPassthrough(t *testing.T) {
 		t.Fatalf("want 1 record, got %d", len(records))
 	}
 
-	raw, _ := records[0]["raw"].(bool)
-	if records[0]["msg"] != "panic: runtime error" || !raw {
+	raw, ok := records[0]["raw"].(bool)
+	if !ok || records[0]["msg"] != "panic: runtime error" || !raw {
 		t.Fatalf("non-JSON not passed through raw: %v", records[0])
 	}
 }
