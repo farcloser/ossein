@@ -331,7 +331,13 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, stageAt = lap()
-	logger.InfoContext(ctx, "rootfs blob pinned", slog.Int64("size_mib", rootfsBlob.Size>>20), stageDur, stageAt)
+	logger.InfoContext(
+		ctx,
+		"rootfs blob pinned",
+		slog.Int64("size_mib", rootfsBlob.Size/bytesize.MiB),
+		stageDur,
+		stageAt,
+	)
 
 	cpus := spec.CPUs
 	if cpus == 0 {
