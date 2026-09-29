@@ -34,44 +34,13 @@ const (
 //	                             caching: if virtio >> rootfs, the guest is not
 //	                             caching file data across opens.
 func runFS(args []string) error {
-	mode := modeVirtio
-	if len(args) > 0 && (args[0] == modeVirtio || args[0] == modeRootfs) {
-		mode = args[0]
-		args = args[1:]
-	}
+	mode, operation, iterations := fsArgs(args)
 
-	operation := opStat
-	if len(args) > 0 && (args[0] == opStat || args[0] == opRead) {
-		operation = args[0]
-		args = args[1:]
-	}
-
-	const defaultIterations = 20000
-
-	iterations := int64(defaultIterations)
-	if operation == opRead {
-		iterations = 2000 // reads move real bytes; fewer iterations
-	}
-
-	if len(args) > 0 {
-		if v, err := strconv.ParseInt(args[0], 10, 64); err == nil && v > 0 {
-			iterations = v
-		}
-	}
-
-	self, err := os.Executable() // resolves /proc/self/exe -> the real path
+	target, cleanup, err := fsTarget(mode)
 	if err != nil {
-		return fmt.Errorf("executable: %w", err)
+		return err
 	}
-
-	target := self // virtio: the binary in place, on the share it was launched from
-	if mode == modeRootfs {
-		target = filepath.Join(os.TempDir(), "fs-target")
-		if err = copyFile(self, target); err != nil {
-			return fmt.Errorf("stage rootfs target: %w", err)
-		}
-		defer func() { _ = os.Remove(target) }()
-	}
+	defer cleanup()
 
 	fi, err := os.Stat(target)
 	if err != nil {
@@ -79,32 +48,19 @@ func runFS(args []string) error {
 	}
 
 	size := fi.Size()
-	buf := make([]byte, bytesize.MiB)
+
+	step := statOnce
+
+	if operation == opRead {
+		buf := make([]byte, bytesize.MiB)
+		step = func(path string) error { return readAll(path, buf) }
+	}
 
 	start := time.Now()
 
-	switch operation {
-	case opRead:
-		for range iterations {
-			if err := readAll(target, buf); err != nil {
-				return err
-			}
-		}
-	default: // stat: open + fstat + close, the per-open metadata round-trip
-		for range iterations {
-			// G304: target is os.Executable() or our own staged copy of it.
-			file, err := os.Open(target) // #nosec G304 -- see above
-			if err != nil {
-				return fmt.Errorf("open: %w", err)
-			}
-
-			if _, err := file.Stat(); err != nil {
-				_ = file.Close()
-
-				return fmt.Errorf("fstat: %w", err)
-			}
-
-			_ = file.Close()
+	for range iterations {
+		if err = step(target); err != nil {
+			return err
 		}
 	}
 
@@ -121,6 +77,76 @@ func runFS(args []string) error {
 
 	_, _ = fmt.Fprintf(os.Stdout, "fs/%s/stat=%d total=%s perop=%.2fus (%.0f ops/s)\n",
 		mode, iterations, elapsed, perop, float64(iterations)/elapsed.Seconds())
+
+	return nil
+}
+
+// fsArgs reads fs's arguments: [virtio|rootfs] [stat|read] [N].
+func fsArgs(args []string) (mode, operation string, iterations int64) {
+	mode = modeVirtio
+	if len(args) > 0 && (args[0] == modeVirtio || args[0] == modeRootfs) {
+		mode = args[0]
+		args = args[1:]
+	}
+
+	operation = opStat
+	if len(args) > 0 && (args[0] == opStat || args[0] == opRead) {
+		operation = args[0]
+		args = args[1:]
+	}
+
+	const defaultIterations = 20000
+
+	iterations = defaultIterations
+
+	if operation == opRead {
+		iterations = 2000 // reads move real bytes; fewer iterations
+	}
+
+	if len(args) > 0 {
+		if v, err := strconv.ParseInt(args[0], 10, 64); err == nil && v > 0 {
+			iterations = v
+		}
+	}
+
+	return mode, operation, iterations
+}
+
+// fsTarget is the file fs measures: this binary in place on the virtio-fs
+// share it was launched from, or, in rootfs mode, a copy staged in tmp.
+// cleanup removes the copy.
+func fsTarget(mode string) (target string, cleanup func(), err error) {
+	self, err := os.Executable() // resolves /proc/self/exe -> the real path
+	if err != nil {
+		return "", nil, fmt.Errorf("executable: %w", err)
+	}
+
+	if mode != modeRootfs {
+		return self, func() {}, nil
+	}
+
+	target = filepath.Join(os.TempDir(), "fs-target")
+	if err = copyFile(self, target); err != nil {
+		return "", nil, fmt.Errorf("stage rootfs target: %w", err)
+	}
+
+	return target, func() { _ = os.Remove(target) }, nil
+}
+
+// statOnce is the per-open metadata round-trip: open, fstat, close.
+func statOnce(path string) error {
+	// G304: path is runFS's target — os.Executable() or our staged copy.
+	file, err := os.Open(path) // #nosec G304 -- see above
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+
+	_, err = file.Stat()
+	_ = file.Close()
+
+	if err != nil {
+		return fmt.Errorf("fstat: %w", err)
+	}
 
 	return nil
 }
