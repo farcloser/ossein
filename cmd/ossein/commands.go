@@ -990,21 +990,8 @@ func (c *buildkitCmd) detach(
 	level, cacheDir string,
 	cacheLocal bool,
 ) error {
-	// Pre-pull in the FOREGROUND: visible progress, and any network-consent
-	// prompt targets a process the user can see. The child then starts warm.
-	cache, err := image.NewCache()
-	if err != nil {
+	if err := prePull(ctx, c.Image); err != nil {
 		return err
-	}
-	defer func() { _ = cache.Close() }()
-
-	img, err := image.Resolve(ctx, cache, c.Image, "", image.PullMissing)
-	if err != nil {
-		return fmt.Errorf("pre-pull %s: %w", c.Image, err)
-	}
-
-	if err = warm(img); err != nil {
-		return fmt.Errorf("pre-pull %s: %w", c.Image, err)
 	}
 
 	// Choose the instance id up front so the backgrounded child and this parent
@@ -1037,6 +1024,51 @@ func (c *buildkitCmd) detach(
 
 	child.Stdout = logFile
 	child.Stderr = logFile
+
+	if err = startDetached(child, dir); err != nil {
+		return err
+	}
+
+	logger.InfoContext(ctx, "buildkit starting in background", pidFileName, child.Process.Pid, "log", logPath)
+
+	if err = awaitSocket(ctx, sock, child.Process.Pid, logPath, bkReadyTimeout); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stdout, "export BUILDKIT_HOST=unix://%s\n", sock)
+	logger.InfoContext(ctx, "buildkit ready", logKeyID, instanceID, "stop", "ossein stop "+instanceID)
+
+	return nil
+}
+
+// prePull resolves and warms ref in the FOREGROUND: visible progress, and any
+// network-consent prompt targets a process the user can see. The detached
+// child then starts warm.
+func prePull(ctx context.Context, ref string) error {
+	cache, err := image.NewCache()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cache.Close() }()
+
+	img, err := image.Resolve(ctx, cache, ref, "", image.PullMissing)
+	if err != nil {
+		return fmt.Errorf("pre-pull %s: %w", ref, err)
+	}
+
+	if err = warm(img); err != nil {
+		return fmt.Errorf("pre-pull %s: %w", ref, err)
+	}
+
+	return nil
+}
+
+// startDetached starts child in its own session and records its pid in dir.
+// Without a pid file the background VM would be unmanageable (stop/gc could
+// never find it), so when the pid cannot be written the child is killed and
+// reaped before the error is reported. Otherwise it is reaped whenever it
+// exits.
+func startDetached(child *exec.Cmd, dir string) error {
 	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	if err := child.Start(); err != nil {
@@ -1044,24 +1076,13 @@ func (c *buildkitCmd) detach(
 	}
 
 	if err := writePid(dir, child.Process.Pid); err != nil {
-		// Without a pid file the background VM would be unmanageable (stop/gc
-		// could never find it): kill and reap the child before reporting.
 		_ = child.Process.Kill()
 		_ = child.Wait()
 
 		return err
 	}
 
-	go func() { _ = child.Wait() }() // reap if it dies while we poll
-
-	logger.InfoContext(ctx, "buildkit starting in background", pidFileName, child.Process.Pid, "log", logPath)
-
-	if err := awaitSocket(ctx, sock, child.Process.Pid, logPath, bkReadyTimeout); err != nil {
-		return err
-	}
-
-	fmt.Fprintf(os.Stdout, "export BUILDKIT_HOST=unix://%s\n", sock)
-	logger.InfoContext(ctx, "buildkit ready", logKeyID, instanceID, "stop", "ossein stop "+instanceID)
+	go func() { _ = child.Wait() }()
 
 	return nil
 }
