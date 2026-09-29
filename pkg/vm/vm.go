@@ -37,11 +37,11 @@ func HostMaxCPUs() uint {
 	return min(uint(runtime.NumCPU()), vz.VirtualMachineConfigurationMaximumAllowedCPUCount())
 }
 
-// HostMaxMemoryMiB is all of the host's physical memory, capped at what
-// Virtualization.framework allows for one guest, in MiB. The framework backs
-// guest memory lazily, so a guest sized this way costs what it touches, not
-// what it was given.
-func HostMaxMemoryMiB() uint64 {
+// HostMaxMemory is all of the host's physical memory, capped at what
+// Virtualization.framework allows for one guest, in bytes, and a whole number
+// of MiB. The framework backs guest memory lazily, so a guest sized this way
+// costs what it touches, not what it was given.
+func HostMaxMemory() uint64 {
 	allowed := vz.VirtualMachineConfigurationMaximumAllowedMemorySize()
 
 	physical, err := unix.SysctlUint64("hw.memsize")
@@ -49,7 +49,8 @@ func HostMaxMemoryMiB() uint64 {
 		physical = allowed
 	}
 
-	return min(physical, allowed) / bytesize.MiB
+	// Rounded down: New rounds up to a whole MiB, which must not pass the cap.
+	return min(physical, allowed) / bytesize.MiB * bytesize.MiB
 }
 
 // Disk is an extra virtio-blk attachment (after the initfs at /dev/vda).
@@ -75,7 +76,7 @@ type Config struct {
 	Kernel string // uncompressed arm64 Image (kernel-arm64)
 	Initfs string // initfs.cpio containing vminitd (unpacked in RAM as the initramfs root)
 	CPUs   uint
-	Memory uint64 // guest RAM, in bytes
+	Memory uint64 // guest RAM, in bytes; New rounds it up to a whole MiB
 
 	ConsoleLog string // file receiving the guest console (hvc0); empty = discard
 	// Network attaches a virtio-net device to Virtualization.framework's own NAT
@@ -188,7 +189,10 @@ func New(cfg Config) (*VM, error) {
 		return nil, fmt.Errorf("bootloader: %w", err)
 	}
 
-	vmc, err := vz.NewVirtualMachineConfiguration(boot, cfg.CPUs, cfg.Memory)
+	// Virtualization.framework refuses a memory size that is not a whole MiB.
+	memory := (cfg.Memory + bytesize.MiB - 1) / bytesize.MiB * bytesize.MiB
+
+	vmc, err := vz.NewVirtualMachineConfiguration(boot, cfg.CPUs, memory)
 	if err != nil {
 		return nil, fmt.Errorf("vm configuration: %w", err)
 	}

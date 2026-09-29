@@ -39,7 +39,7 @@ func sizeWholeHost(cpus uint, memoryMiB uint64) (uint, uint64) {
 	}
 
 	if memoryMiB == cli.WholeHost {
-		memoryMiB = vm.HostMaxMemoryMiB()
+		memoryMiB = vm.HostMaxMemory() / bytesize.MiB
 	}
 
 	return cpus, memoryMiB
