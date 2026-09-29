@@ -197,6 +197,11 @@ linters:
           - revive
 
   settings:
+    sloglint:
+      context: scope
+      key-naming-case: snake
+      msg-style: lowercased
+      static-msg: true
     wrapcheck:
       # wrapcheck exists to keep THIRD-PARTY errors traceable. Errors from our
       # own internal packages are already folded into sentinels and given
