@@ -19,7 +19,7 @@ require (
 	github.com/mdlayher/vsock v1.3.0
 	github.com/moby/buildkit v0.33.0
 	github.com/moby/sys/capability v0.4.0
-	github.com/mycophonic/primordium v0.9.1
+	github.com/mycophonic/primordium v0.10.0
 	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/tonistiigi/fsutil v0.0.0-20260819142231-83cac42c1c52
 	github.com/vishvananda/netlink v1.3.1
