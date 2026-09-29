@@ -24,7 +24,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/mycophonic/primordium/filesystem"
@@ -76,14 +76,16 @@ func main() {
 	flag.Parse()
 
 	if *inPath == "" || *out == "" {
-		log.Fatal("build-initfs: -in and -out are required")
+		slog.Error("build-initfs: -in and -out are required")
+		os.Exit(1)
 	}
 
 	if err := build(*inPath, *out, *initPath); err != nil {
-		log.Fatalf("build-initfs: %v", err)
+		slog.Error("build-initfs failed", "err", err)
+		os.Exit(1)
 	}
 
-	log.Printf("build-initfs: wrote %s with init at %s", *out, *initPath)
+	slog.Info("build-initfs: wrote the initfs", "out", *out, "init", *initPath)
 }
 
 func build(inPath, out, initPath string) error {

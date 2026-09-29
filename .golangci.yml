@@ -304,6 +304,13 @@ linters:
         main:
           files:
             - $all
+          deny:
+            - pkg: log$
+              desc: logging is log/slog
+            - pkg: math/rand$
+              desc: use math/rand/v2
+            - pkg: io/ioutil$
+              desc: deprecated since Go 1.16; the functions moved to io and os
           allow:
             - $gostd
             - github.com/farcloser/ossein

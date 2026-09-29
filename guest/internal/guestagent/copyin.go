@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log" //nolint:depguard // the serial console's logger: slog would add 128 KiB to PID 1.
 	"os"
 	goruntime "runtime"
 	"strings"
