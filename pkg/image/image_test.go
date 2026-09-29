@@ -3,7 +3,6 @@ package image
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -221,18 +220,18 @@ func TestResolveAlwaysDropsTheRecord(t *testing.T) {
 	writeRecord(t, cache, ref, fixture.record)
 
 	// never: served from the record.
-	if _, err := Resolve(context.Background(), cache, ref, "", PullNever); err != nil {
+	if _, err := Resolve(t.Context(), cache, ref, "", PullNever); err != nil {
 		t.Fatalf("Resolve(never) = %v", err)
 	}
 
 	// always: the record is dropped first, so the registry is consulted — an
 	// example.com registry this test cannot reach, which is the proof.
-	if _, err := Resolve(context.Background(), cache, ref, "", PullAlways); !errors.Is(err, ErrResolve) {
+	if _, err := Resolve(t.Context(), cache, ref, "", PullAlways); !errors.Is(err, ErrResolve) {
 		t.Fatalf("Resolve(always) = %v, want ErrResolve from the registry", err)
 	}
 
 	// And the record did not survive the attempt.
-	if _, err := Resolve(context.Background(), cache, ref, "", PullNever); !errors.Is(err, ErrResolve) {
+	if _, err := Resolve(t.Context(), cache, ref, "", PullNever); !errors.Is(err, ErrResolve) {
 		t.Fatalf("Resolve(never) after always = %v, want ErrResolve (not resolved locally)", err)
 	}
 }
@@ -247,7 +246,7 @@ func TestResolvePullNeverUncachedFails(t *testing.T) {
 
 	defer func() { _ = cache.Close() }()
 
-	_, err = Resolve(context.Background(), cache, "example.com/never/cached:latest", "", PullNever)
+	_, err = Resolve(t.Context(), cache, "example.com/never/cached:latest", "", PullNever)
 	if !errors.Is(err, ErrResolve) {
 		t.Fatalf("Resolve(PullNever, uncached) = %v, want ErrResolve", err)
 	}
@@ -378,7 +377,7 @@ func TestResolvePinnedRefVerifiesTheChain(t *testing.T) {
 	writeRecord(t, cache, viaIndex, fixture.record)
 
 	for _, pull := range []string{PullNever, PullMissing} {
-		got, err := Resolve(context.Background(), cache, viaIndex, "", pull)
+		got, err := Resolve(t.Context(), cache, viaIndex, "", pull)
 		if err != nil {
 			t.Fatalf("Resolve(%s, pinned to index) = %v", pull, err)
 		}
@@ -394,7 +393,7 @@ func TestResolvePinnedRefVerifiesTheChain(t *testing.T) {
 	rec.Index = nil
 	writeRecord(t, cache, direct, rec)
 
-	if _, err := Resolve(context.Background(), cache, direct, "", PullNever); err != nil {
+	if _, err := Resolve(t.Context(), cache, direct, "", PullNever); err != nil {
 		t.Fatalf("Resolve(pinned to manifest) = %v", err)
 	}
 }
@@ -435,7 +434,7 @@ func TestResolvePinnedRefRefusesAnAlteredRecord(t *testing.T) {
 		writeRecord(t, cache, ref, rec)
 
 		for _, pull := range []string{PullNever, PullMissing} {
-			if _, err := Resolve(context.Background(), cache, ref, "", pull); !errors.Is(err, ErrResolve) {
+			if _, err := Resolve(t.Context(), cache, ref, "", pull); !errors.Is(err, ErrResolve) {
 				t.Errorf("%s, Resolve(%s) = %v, want ErrResolve", label, pull, err)
 			}
 		}
@@ -462,7 +461,7 @@ func TestResolvePinnedRefWithoutChainNeedsARePull(t *testing.T) {
 	pinned := "example.com/pinned@" + fixture.idxDigest
 	writeRecord(t, cache, pinned, legacy)
 
-	_, err = Resolve(context.Background(), cache, pinned, "", PullNever)
+	_, err = Resolve(t.Context(), cache, pinned, "", PullNever)
 	if !errors.Is(err, ErrResolve) || !strings.Contains(err.Error(), "--pull=always") {
 		t.Fatalf("Resolve(never, unchained pinned record) = %v, want ErrResolve naming --pull=always", err)
 	}
@@ -471,7 +470,7 @@ func TestResolvePinnedRefWithoutChainNeedsARePull(t *testing.T) {
 	tag := "example.com/pinned:dev"
 	writeRecord(t, cache, tag, legacy)
 
-	got, err := Resolve(context.Background(), cache, tag, "", PullNever)
+	got, err := Resolve(t.Context(), cache, tag, "", PullNever)
 	if err != nil || "sha256:"+got.Digest != fixture.imgDigest {
 		t.Fatalf("Resolve(never, tag with legacy record) = (%v, %v)", got, err)
 	}
@@ -482,7 +481,7 @@ func TestResolveUnknownPullPolicyErrors(t *testing.T) {
 
 	// The policy is validated before anything else, so no cache (nil) and no
 	// network are ever touched.
-	_, err := Resolve(context.Background(), nil, "debian", "", "sometimes")
+	_, err := Resolve(t.Context(), nil, "debian", "", "sometimes")
 	if !errors.Is(err, ErrResolve) {
 		t.Fatalf("Resolve(pull=sometimes) = %v, want ErrResolve", err)
 	}
@@ -610,7 +609,7 @@ func TestImportResolvesOfflineAndFlattens(t *testing.T) {
 	for _, pull := range []string{PullNever, PullMissing} {
 		var resolved *Image
 
-		if resolved, err = Resolve(context.Background(), cache, ref, "", pull); err != nil {
+		if resolved, err = Resolve(t.Context(), cache, ref, "", pull); err != nil {
 			t.Fatalf("Resolve(%s) after Import: %v", pull, err)
 		}
 
@@ -625,7 +624,7 @@ func TestImportResolvesOfflineAndFlattens(t *testing.T) {
 
 	// A resolved-from-record local image whose blob is gone cannot be re-fetched:
 	// the error must say "rebuild", not try a registry.
-	resolved, err := Resolve(context.Background(), cache, ref, "", PullMissing)
+	resolved, err := Resolve(t.Context(), cache, ref, "", PullMissing)
 	if err != nil {
 		t.Fatal(err)
 	}

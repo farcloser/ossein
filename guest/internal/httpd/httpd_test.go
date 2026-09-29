@@ -589,7 +589,7 @@ func TestConcurrentConnections(t *testing.T) {
 
 			key := fmt.Sprintf("k%d", index)
 
-			resp, err := client.CallUnary(context.Background(),
+			resp, err := client.CallUnary(t.Context(),
 				connect.NewRequest(&pb.GetenvRequest{Key: key}))
 			if err != nil {
 				errs <- err
