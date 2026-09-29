@@ -279,11 +279,9 @@ func newPinnedFixture(t *testing.T) pinnedFixture {
 	host := hostPlatform()
 
 	idx := mutate.AppendManifests(empty.Index, mutate.IndexAddendum{
-		Add: img,
-		Descriptor: v1.Descriptor{
-			MediaType: types.OCIManifestSchema1,
-			Platform:  &host,
-		},
+		Add:       img,
+		MediaType: types.OCIManifestSchema1,
+		Platform:  &host,
 	})
 
 	rawIndex, err := idx.RawManifest()
