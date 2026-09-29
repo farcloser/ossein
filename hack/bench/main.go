@@ -14,6 +14,13 @@ import (
 	"os"
 )
 
+// The two places a bench's target can live: the virtio-fs share it was
+// launched from, or the container rootfs.
+const (
+	modeVirtio = "virtio"
+	modeRootfs = "rootfs"
+)
+
 func main() {
 	// Fast path for the forkexec child: it re-execs this binary as `<self> noop`
 	// (see forkexec.go) and must exit immediately, before any flag parsing.

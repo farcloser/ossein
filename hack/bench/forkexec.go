@@ -32,10 +32,10 @@ import (
 // the cost of execing a binary off a bind share. Do not compare one runtime's rootfs
 // number against another's virtio number — that mismatch hides a real virtio-fs gap.
 func runForkexec(args []string) error {
-	mode := "rootfs"
+	mode := modeRootfs
 
 	rest := args
-	if len(rest) > 0 && (rest[0] == "rootfs" || rest[0] == "virtio") {
+	if len(rest) > 0 && (rest[0] == modeRootfs || rest[0] == modeVirtio) {
 		mode = rest[0]
 		rest = rest[1:]
 	}
@@ -51,7 +51,7 @@ func runForkexec(args []string) error {
 	var target string
 
 	switch mode {
-	case "virtio":
+	case modeVirtio:
 		// exec the binary in place — across the share it was launched from.
 		target = "/proc/self/exe"
 	default: // rootfs
