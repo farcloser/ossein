@@ -18,6 +18,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -899,7 +900,7 @@ func (i *Instance) buildOCISpec(ctx context.Context) ([]byte, error) {
 		ContainerID: i.ID,
 		RootfsPath:  i.rootfs,
 		Args:        args,
-		Env:         append(append([]string{}, i.img.Config.Env...), i.spec.Env...),
+		Env:         slices.Concat(i.img.Config.Env, i.spec.Env),
 		Cwd:         cwd,
 		User:        user,
 		TTY:         i.spec.TTY,

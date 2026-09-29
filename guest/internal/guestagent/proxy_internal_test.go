@@ -14,7 +14,7 @@ import (
 
 // socketPair returns a connected *net.UnixConn pair via socketpair(2), which
 // needs no filesystem path and so no sun_path budget.
-func socketPair(t *testing.T) (*net.UnixConn, *net.UnixConn) {
+func socketPair(t *testing.T) (left, right *net.UnixConn) {
 	t.Helper()
 
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
