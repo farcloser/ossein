@@ -578,11 +578,7 @@ func TestConcurrentConnections(t *testing.T) {
 	errs := make(chan error, 16)
 
 	for index := range 16 {
-		waiters.Add(1)
-
-		go func() {
-			defer waiters.Done()
-
+		waiters.Go(func() {
 			client := connect.NewClient[pb.GetenvRequest, pb.GetenvResponse](
 				&http.Client{}, "http://"+addr+"/x.v1/Getenv",
 			)
@@ -600,7 +596,7 @@ func TestConcurrentConnections(t *testing.T) {
 			if resp.Msg.GetValue() != key {
 				errs <- fmt.Errorf("%w: got %q want %q", errMismatch, resp.Msg.GetValue(), key)
 			}
-		}()
+		})
 	}
 
 	waiters.Wait()
