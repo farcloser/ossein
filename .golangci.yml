@@ -155,7 +155,6 @@ linters:
     - mnd # already provided by revive add-constant
     - nakedret # provided by revive
     - predeclared # provided by revive
-    - unparam # provided by revive
 
   exclusions:
     paths:
