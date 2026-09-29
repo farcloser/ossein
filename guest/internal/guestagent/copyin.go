@@ -128,7 +128,11 @@ func (a *Agent) Copy(ctx context.Context, req *pb.CopyRequest, stream *connect.S
 		return fmt.Errorf("copy: %w", job.err)
 	}
 
-	return stream.Send(&pb.CopyResponse{Status: pb.CopyResponse_COMPLETE}) //nolint:wrapcheck
+	if err := stream.Send(&pb.CopyResponse{Status: pb.CopyResponse_COMPLETE}); err != nil {
+		return fmt.Errorf("copy: sending completion: %w", err)
+	}
+
+	return nil
 }
 
 // materializeRootfs makes the container rootfs appear at dest, as mounts.
