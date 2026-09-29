@@ -52,7 +52,7 @@ func TestWriteRootfsFileFinalSymlinkIsReplacedNotFollowed(t *testing.T) {
 	}
 
 	victim := filepath.Join(outside, "resolv.conf")
-	if err := os.Symlink(victim, filepath.Join(root, "etc/resolv.conf")); err != nil {
+	if err := os.Symlink(victim, filepath.Join(root, "etc", "resolv.conf")); err != nil {
 		t.Fatalf("plant symlink: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestWriteRootfsFileFinalSymlinkIsReplacedNotFollowed(t *testing.T) {
 		t.Fatal("ESCAPE: the write followed the symlink and landed outside the rootfs")
 	}
 
-	got, err := os.ReadFile(filepath.Join(root, "etc/resolv.conf"))
+	got, err := os.ReadFile(filepath.Join(root, "etc", "resolv.conf"))
 	if err != nil {
 		t.Fatalf("resolv.conf should exist inside the rootfs: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestWriteRootfsFileFinalSymlinkIsReplacedNotFollowed(t *testing.T) {
 	}
 
 	// And it must be a real file now, not still a link.
-	info, err := os.Lstat(filepath.Join(root, "etc/resolv.conf"))
+	info, err := os.Lstat(filepath.Join(root, "etc", "resolv.conf"))
 	if err != nil || info.Mode()&os.ModeSymlink != 0 {
 		t.Fatalf("destination is still a symlink: %v, mode %v", err, info.Mode())
 	}
@@ -136,7 +136,7 @@ func TestWriteRootfsFileAbsoluteSymlinkRedirectsIntoRoot(t *testing.T) {
 		t.Fatalf("writeRootfsFile: %v", err)
 	}
 
-	if _, err := os.Lstat(filepath.Join(root, "real/hosts")); err != nil {
+	if _, err := os.Lstat(filepath.Join(root, "real", "hosts")); err != nil {
 		t.Fatalf("write should have been redirected to <root>/real: %v", err)
 	}
 }
@@ -150,7 +150,7 @@ func TestWriteRootfsFileUsrMergeStillResolves(t *testing.T) {
 
 	root, _ := rootWithOutside(t)
 
-	if err := os.MkdirAll(filepath.Join(root, "usr/etc"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "usr", "etc"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
@@ -162,7 +162,7 @@ func TestWriteRootfsFileUsrMergeStillResolves(t *testing.T) {
 		t.Fatalf("usrmerge-style write failed: %v", err)
 	}
 
-	if _, err := os.Lstat(filepath.Join(root, "usr/etc/hosts")); err != nil {
+	if _, err := os.Lstat(filepath.Join(root, "usr", "etc", "hosts")); err != nil {
 		t.Fatalf("write did not resolve through etc -> usr/etc: %v", err)
 	}
 
@@ -203,7 +203,7 @@ func TestWriteRootfsFileCreatesMissingParents(t *testing.T) {
 		t.Fatalf("writeRootfsFile: %v", err)
 	}
 
-	got, err := os.ReadFile(filepath.Join(root, "etc/resolv.conf"))
+	got, err := os.ReadFile(filepath.Join(root, "etc", "resolv.conf"))
 	if err != nil || string(got) != "nameserver 9.9.9.9\n" {
 		t.Fatalf("content = %q (%v)", got, err)
 	}

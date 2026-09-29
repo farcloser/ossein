@@ -60,7 +60,7 @@ func Stage2() error {
 
 	errPipe := os.NewFile(fdError, "error")
 	if err := run(*specPath, *stdin, *stdout, *stderr, *tty); err != nil {
-		_, _ = io.WriteString(errPipe, err.Error())
+		_, _ = errPipe.WriteString(err.Error())
 		_ = errPipe.Close()
 
 		return err
@@ -415,7 +415,7 @@ func makeDevNodes(root string) error {
 // configureConsole replaces the devpts-provided /dev/ptmx with the standard
 // symlink to pts/ptmx, so opening /dev/ptmx uses the container's devpts.
 func configureConsole(root string) {
-	ptmx := filepath.Join(root, "dev/ptmx")
+	ptmx := filepath.Join(root, "dev", "ptmx")
 	_ = os.Remove(ptmx)
 	_ = os.Symlink("pts/ptmx", ptmx)
 }
