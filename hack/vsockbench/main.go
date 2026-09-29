@@ -47,7 +47,7 @@ import (
 const (
 	modeRecv     = 'R'
 	modeSend     = 'S'
-	bufSize      = 1 << 20
+	bufSize      = bytesize.MiB
 	headerSize   = 9
 	guestBench   = "/bench"
 	guestPeer    = "/bench/vsockpeer"
