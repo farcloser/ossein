@@ -18,14 +18,14 @@
 # terminal, not a sandbox) and the debian image (pulled on first use).
 #
 # usage: bench-vsock.sh [bytes] [streams] [runs] [sizes...]
-#   bytes   per stream per run (default 2 GiB)
+#   bytes   per stream per run, with a unit or in bytes (default 2GiB)
 #   streams concurrent connections (default 1)
 #   runs    per direction per variant (default 3)
 #   sizes   copy buffer sizes to try besides stock (default: 262144 1048576)
 # BENCH_BUILD_ONLY=1 builds every variant and stops (no VZ needed).
 set -euo pipefail
 
-BYTES="${1:-2147483648}"
+BYTES="${1:-2GiB}"
 STREAMS="${2:-1}"
 RUNS="${3:-3}"
 shift $(( $# > 3 ? 3 : $# )) || true
@@ -96,7 +96,7 @@ run_variant() {
     echo "== $label" | tee -a "$OUT"
     "build/vsockbench-$label" \
         -initfs "build/initfs-$label.cpio" -kernel pkg/guestartifacts/kernel-arm64 \
-        -bench-dir build -bytes "$BYTES" -streams "$STREAMS" -runs "$RUNS" -label "$label" \
+        -bench-dir build -size "$BYTES" -streams "$STREAMS" -runs "$RUNS" -label "$label" \
         | tee -a "$OUT"
 }
 

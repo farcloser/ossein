@@ -14,7 +14,7 @@
 // The client's own copy loop uses a 1 MiB buffer with the ReaderFrom/WriterTo
 // fast paths hidden, so what is measured is the relay, not this program.
 //
-//	build/vsockbench -image debian -bytes 2147483648 -streams 1 -runs 3
+//	build/vsockbench -image debian -size 2GiB -streams 1 -runs 3
 //
 // Requires the VZ entitlement (codesign like build/ossein) and the guest
 // artifacts: -kernel (default pkg/guestartifacts/kernel-arm64) and -initfs
@@ -39,7 +39,9 @@ import (
 
 	"github.com/mycophonic/primordium/bytesize"
 	"github.com/mycophonic/primordium/filesystem/dirs"
+	"github.com/mycophonic/primordium/human"
 
+	"github.com/farcloser/ossein/internal/cli"
 	"github.com/farcloser/ossein/pkg/container"
 	"github.com/farcloser/ossein/pkg/image"
 )
@@ -76,24 +78,37 @@ type options struct {
 }
 
 func main() {
-	var (
-		opts      options
-		memoryMiB uint64
-	)
+	opts := options{size: defaultSize, memory: defaultMem}
 
 	flag.StringVar(&opts.image, "image", "debian", "container image (needs nothing but a shell)")
 	flag.StringVar(&opts.kernel, "kernel", "pkg/guestartifacts/kernel-arm64", "guest kernel")
 	flag.StringVar(&opts.initfs, "initfs", "build/initfs.cpio", "vminitd initfs (the guest agent under test)")
 	flag.StringVar(&opts.benchDir, "bench-dir", "build", "host dir holding vsockpeer; bind-mounted at "+guestBench)
-	flag.Int64Var(&opts.size, "bytes", defaultSize, "bytes per stream per run")
+	flag.Func("size", "per stream per run, with a unit or in bytes (default 2GiB)", func(value string) error {
+		size, err := human.ParseSize(value)
+		if err != nil {
+			return fmt.Errorf("want a size like 2GiB: %w", err)
+		}
+
+		opts.size = size
+
+		return nil
+	})
 	flag.IntVar(&opts.streams, "streams", 1, "concurrent connections")
 	flag.IntVar(&opts.runs, "runs", defaultRuns, "runs per direction")
 	flag.UintVar(&opts.cpus, "cpus", defaultCPUs, "guest vCPUs")
-	flag.Uint64Var(&memoryMiB, "memory", defaultMem/bytesize.MiB, "guest memory MiB")
+	flag.Func("memory", "guest memory, with a unit (default 2GiB)", func(value string) error {
+		memory, err := cli.ParseSize(value)
+		if err != nil {
+			return err // flag prefixes the flag's name and value.
+		}
+
+		opts.memory = memory
+
+		return nil
+	})
 	flag.StringVar(&opts.label, "label", "", "free-text label echoed in the result lines")
 	flag.Parse()
-
-	opts.memory = memoryMiB * bytesize.MiB
 
 	if err := run(opts); err != nil {
 		fmt.Fprintln(os.Stderr, "vsockbench:", err)
