@@ -193,8 +193,6 @@ func (s ConnectShim) StopVsockProxy(
 }
 
 // IpLinkSet adapts Agent.IpLinkSet to the Connect handler signature.
-//
-//nolint:staticcheck // ST1003: name fixed by the generated interface (see the block note above)
 func (s ConnectShim) IpLinkSet(
 	ctx context.Context, req *connect.Request[pb.IpLinkSetRequest],
 ) (*connect.Response[pb.IpLinkSetResponse], error) {
@@ -207,8 +205,6 @@ func (s ConnectShim) IpLinkSet(
 }
 
 // IpAddrAdd adapts Agent.IpAddrAdd to the Connect handler signature.
-//
-//nolint:staticcheck // ST1003: name fixed by the generated interface (see the block note above)
 func (s ConnectShim) IpAddrAdd(
 	ctx context.Context, req *connect.Request[pb.IpAddrAddRequest],
 ) (*connect.Response[pb.IpAddrAddResponse], error) {
@@ -222,8 +218,6 @@ func (s ConnectShim) IpAddrAdd(
 
 // IpRouteAddLink is part of the vendored contract but has no host-side caller and no
 // guest implementation.
-//
-//nolint:staticcheck // ST1003: name fixed by the generated interface (see the block note above)
 func (ConnectShim) IpRouteAddLink(
 	_ context.Context, _ *connect.Request[pb.IpRouteAddLinkRequest],
 ) (*connect.Response[pb.IpRouteAddLinkResponse], error) {
@@ -231,8 +225,6 @@ func (ConnectShim) IpRouteAddLink(
 }
 
 // IpRouteAddDefault adapts Agent.IpRouteAddDefault to the Connect handler signature.
-//
-//nolint:staticcheck // ST1003: name fixed by the generated interface (see the block note above)
 func (s ConnectShim) IpRouteAddDefault(
 	ctx context.Context, req *connect.Request[pb.IpRouteAddDefaultRequest],
 ) (*connect.Response[pb.IpRouteAddDefaultResponse], error) {
@@ -245,8 +237,6 @@ func (s ConnectShim) IpRouteAddDefault(
 }
 
 // ConfigureDns adapts Agent.ConfigureDns to the Connect handler signature.
-//
-//nolint:staticcheck // ST1003: name fixed by the generated interface (see the block note above)
 func (s ConnectShim) ConfigureDns(
 	ctx context.Context, req *connect.Request[pb.ConfigureDnsRequest],
 ) (*connect.Response[pb.ConfigureDnsResponse], error) {

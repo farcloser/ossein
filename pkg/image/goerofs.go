@@ -81,7 +81,7 @@ func buildGoEROFS(tarStream io.ReadCloser) (io.ReadCloser, error) {
 	return newPaddedReader(&removeOnClose{File: reopened, dir: tmpDir}), nil
 }
 
-//nolint:gocognit,cyclop,funlen // linear tar-entry dispatch, one case per type
+//nolint:gocognit,cyclop // linear tar-entry dispatch, one case per type
 func convertTarToEROFS(tarStream io.Reader, img *os.File, tmpDir string) error {
 	writer := goerofs.Create(img,
 		goerofs.WithBlockSize(erofsBlockSize),
