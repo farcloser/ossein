@@ -130,6 +130,8 @@ const recordGeneration = "r1"
 
 // NewCache opens the image cache under <cache-dir>/images/<cacheLayoutVersion>
 // (the app name segment comes from dirs.SetAppName, called once in main).
+//
+//nolint:iface // opaque: Cache is the swap seam its doc describes, not an abstraction over one store.
 func NewCache() (Cache, error) {
 	root, err := dirs.CacheDir("images", cacheLayoutVersion)
 	if err != nil {
