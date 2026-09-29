@@ -75,6 +75,10 @@ const (
 	defaultCPUs      uint   = 2
 	defaultMemoryMiB uint64 = 2048
 
+	// doctorMemoryMiB sizes Doctor's bare VM: no image, no rootfs, only
+	// vminitd and one tmpfs mount to exercise.
+	doctorMemoryMiB uint64 = 512
+
 	// guestIface is the guest's single NIC; the guest agent DHCPs on it.
 	guestIface = "eth0"
 
@@ -515,7 +519,7 @@ func Doctor(ctx context.Context, art Artifacts, consoleLog string) error {
 		Kernel:     art.Kernel,
 		Initfs:     art.Initfs,
 		CPUs:       1,
-		MemoryMiB:  512,
+		MemoryMiB:  doctorMemoryMiB,
 		ConsoleLog: consoleLog,
 	})
 	if err != nil {

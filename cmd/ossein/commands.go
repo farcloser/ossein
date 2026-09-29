@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mycophonic/primordium/filesystem"
 	"github.com/mycophonic/primordium/filesystem/dirs"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
@@ -55,11 +56,10 @@ const (
 	// has exited (the grace budget itself is the stop --grace flag).
 	stopPollInterval = 250 * time.Millisecond
 
-	// pidFileName is the per-instance pid file (inside InstanceDir); pidFileMode
-	// keeps it owner-only. The record is "pid:starttime" — the start time pins
-	// the process incarnation so a recycled pid is never signaled.
+	// pidFileName is the per-instance pid file (inside InstanceDir). The record
+	// is "pid:starttime" — the start time pins the process incarnation so a
+	// recycled pid is never signaled.
 	pidFileName = "pid"
-	pidFileMode = 0o600
 
 	// buildkitLogName is the backgrounded child's stdout/stderr capture
 	// (inside InstanceDir), the file every "see the log" message points at.
@@ -72,8 +72,14 @@ const (
 	buildkitCacheSize = 20 << 30 // 20 GiB, sparse (grows as used)
 
 	// bkReadyTimeout bounds how long detach waits for the backgrounded
-	// buildkitd to answer on its socket before giving up and killing the child.
-	bkReadyTimeout = 5 * time.Minute
+	// buildkitd to answer on its socket before giving up and killing the child;
+	// bkReadyPollInterval is how often it probes in the meantime.
+	bkReadyTimeout      = 5 * time.Minute
+	bkReadyPollInterval = 250 * time.Millisecond
+
+	// probeSilenceWindow is how long probeSocketChain waits for a byte: a broken
+	// guest leg closes well inside it, a healthy but quiet server outlasts it.
+	probeSilenceWindow = 400 * time.Millisecond
 
 	// exitInterrupted is the shell convention for death by SIGINT (128+2);
 	// used when signal escalation abandons the guest.
@@ -1059,7 +1065,7 @@ func awaitSocket(ctx context.Context, sock string, childPID int, logPath string,
 			return fmt.Errorf("%w: not answering after %s — see %s", errBuildkit, timeout, logPath)
 		}
 
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(bkReadyPollInterval)
 	}
 
 	return nil
@@ -1333,7 +1339,11 @@ func writePid(dir string, pid int) error {
 
 	record := strconv.Itoa(pid) + ":" + strconv.FormatInt(start, decimal)
 
-	if err := os.WriteFile(filepath.Join(dir, pidFileName), []byte(record), pidFileMode); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, pidFileName),
+		[]byte(record),
+		filesystem.FilePermissionsPrivate,
+	); err != nil {
 		return fmt.Errorf("writing pidfile: %w", err)
 	}
 
@@ -1424,7 +1434,7 @@ func probeSocketChain(ctx context.Context, sock string) bool {
 	}
 	defer func() { _ = conn.Close() }()
 
-	_ = conn.SetReadDeadline(time.Now().Add(400 * time.Millisecond))
+	_ = conn.SetReadDeadline(time.Now().Add(probeSilenceWindow))
 
 	var buf [1]byte
 

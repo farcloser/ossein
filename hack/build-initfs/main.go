@@ -27,6 +27,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/mycophonic/primordium/filesystem"
+
 	"github.com/farcloser/ossein/internal/protocol"
 )
 
@@ -38,6 +40,9 @@ const (
 	modeDir  = 0o040000
 	modeReg  = 0o100000
 	modeChar = 0o020000
+
+	// charDevPerm keeps the archive's device nodes owner-only.
+	charDevPerm = 0o600
 
 	// Device nodes the archive must carry. /dev/console (char 5,1) is where
 	// the kernel points init's stdio; /dev/null (char 1,3) is what the Go
@@ -133,14 +138,14 @@ type cpio struct {
 
 func newCpio() *cpio { return &cpio{ino: 1} }
 
-func (c *cpio) dir(name string) { c.entry(name, modeDir|0o755, 0, 0, nil) }
+func (c *cpio) dir(name string) { c.entry(name, modeDir|filesystem.DirPermissionsDefault, 0, 0, nil) }
 
 func (c *cpio) file(name string, perm uint32, data []byte) {
 	c.entry(name, modeReg|perm, 0, 0, data)
 }
 
 func (c *cpio) charDev(name string, major, minor uint32) {
-	c.entry(name, modeChar|0o600, major, minor, nil)
+	c.entry(name, modeChar|charDevPerm, major, minor, nil)
 }
 
 func (c *cpio) trailer() {
