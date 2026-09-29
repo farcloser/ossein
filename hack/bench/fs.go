@@ -58,7 +58,7 @@ func runFS(args []string) error {
 	target := self // virtio: the binary in place, on the share it was launched from
 	if mode == "rootfs" {
 		target = filepath.Join(os.TempDir(), "fs-target")
-		if err := copyFile(self, target); err != nil {
+		if err = copyFile(self, target); err != nil {
 			return fmt.Errorf("stage rootfs target: %w", err)
 		}
 		defer func() { _ = os.Remove(target) }()
