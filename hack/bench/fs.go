@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mycophonic/primordium/bytesize"
+	"github.com/mycophonic/primordium/filesystem"
 )
 
 // fs's two measurements (see runFS).
@@ -45,7 +46,9 @@ func runFS(args []string) error {
 		args = args[1:]
 	}
 
-	iterations := int64(20000)
+	const defaultIterations = 20000
+
+	iterations := int64(defaultIterations)
 	if operation == opRead {
 		iterations = 2000 // reads move real bytes; fewer iterations
 	}
@@ -155,7 +158,7 @@ func copyFile(src, dst string) error {
 	// back by this same process, so it never needs to be executable OR readable
 	// by anyone else. Least privilege, and it satisfies G306 outright.
 	// #nosec G703 -- see above
-	if err := os.WriteFile(dst, content, 0o600); err != nil {
+	if err := os.WriteFile(dst, content, filesystem.FilePermissionsPrivate); err != nil {
 		return fmt.Errorf("write %s: %w", dst, err)
 	}
 

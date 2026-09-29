@@ -35,7 +35,9 @@ func runMmap(args []string) error {
 		args = args[1:]
 	}
 
-	pages := int64(16384) // 64 MB at 4K
+	const defaultPages = 16384 // 64 MiB at 4 KiB
+
+	pages := int64(defaultPages)
 
 	if len(args) > 0 {
 		if v, err := strconv.ParseInt(args[0], 10, 64); err == nil && v > 0 {
@@ -43,7 +45,9 @@ func runMmap(args []string) error {
 		}
 	}
 
-	iterations := int64(2000)
+	const defaultIterations = 2000
+
+	iterations := int64(defaultIterations)
 
 	if len(args) > 1 {
 		if v, err := strconv.ParseInt(args[1], 10, 64); err == nil && v > 0 {

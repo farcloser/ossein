@@ -375,6 +375,9 @@ func mountInto(root string, mnt specs.Mount) error {
 	return nil
 }
 
+// devNodeMode is crw-rw-rw-, what devtmpfs gives these nodes.
+const devNodeMode = 0o666
+
 // makeDevNodes populates the container's private tmpfs /dev with the standard
 // device set (runc's defaults). The spec mounts tmpfs — not the singleton
 // devtmpfs — on /dev precisely so these nodes, and the console/ptmx tweaks
@@ -404,7 +407,7 @@ func makeDevNodes(root string) error {
 		// Mkdev of these fixed single-digit major/minor pairs is far below any
 		// integer boundary; the int conversion cannot overflow.
 		dev := unix.Mkdev(node.major, node.minor)
-		if err := unix.Mknod(path, unix.S_IFCHR|0o666, int(dev)); err != nil { // #nosec G115 -- see above
+		if err := unix.Mknod(path, unix.S_IFCHR|devNodeMode, int(dev)); err != nil { // #nosec G115 -- see above
 			return fmt.Errorf("mknod /dev/%s: %w", node.name, err)
 		}
 	}
