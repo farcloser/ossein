@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
+	"github.com/mycophonic/primordium/bytesize"
 	"golang.org/x/sys/unix"
 
 	"github.com/farcloser/ossein/guest/internal/vmexec"
@@ -133,7 +134,8 @@ func (*Agent) Mount(_ context.Context, req *pb.MountRequest) (*pb.MountResponse,
 	return &pb.MountResponse{}, nil
 }
 
-// virtiofsReadaheadKB is the per-mount readahead we set on virtio-fs shares. The virtio-fs bdi
+// virtiofsReadahead is the per-mount readahead we set on virtio-fs shares; the kernel takes it
+// in KiB, through read_ahead_kb. The virtio-fs bdi
 // ships read_ahead_kb=128 (vs 8192 for virtio-blk), which throttles sequential reads off a
 // share. Reading a file whole, binary on tmpfs so only the data path is measured:
 //
@@ -146,7 +148,7 @@ func (*Agent) Mount(_ context.Context, req *pb.MountRequest) (*pb.MountResponse,
 // unaffected: readahead is a data-path knob. Applies to every share, Rosetta included (harmless
 // — it is read-only executable data). It does NOT fix exec-from-mount (that is per-spawn demand
 // paging of the binary, a separate VZ virtio-fs cost documented at the host mount site).
-const virtiofsReadaheadKB = 1024
+const virtiofsReadahead = bytesize.MiB
 
 // tuneVirtiofsReadahead raises read_ahead_kb on the bdi backing a freshly-mounted virtio-fs
 // share. Best-effort: a failure here is logged and never fails the mount.
@@ -161,7 +163,7 @@ func tuneVirtiofsReadahead(mountpoint string) {
 	// The FUSE/virtio-fs bdi is named by the mount's superblock device number:
 	// /sys/class/bdi/<major>:<minor>/read_ahead_kb.
 	bdi := fmt.Sprintf("/sys/class/bdi/%d:%d/read_ahead_kb", unix.Major(stat.Dev), unix.Minor(stat.Dev))
-	if err := os.WriteFile(bdi, []byte(strconv.Itoa(virtiofsReadaheadKB)), 0); err != nil {
+	if err := os.WriteFile(bdi, []byte(strconv.Itoa(virtiofsReadahead/bytesize.KiB)), 0); err != nil {
 		log.Printf("warning: virtio-fs readahead: write %s: %v", bdi, err)
 	}
 }
