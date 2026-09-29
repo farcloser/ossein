@@ -59,13 +59,14 @@ func raw(t *testing.T, addr string) (net.Conn, *bufio.Reader) {
 	return conn, bufio.NewReader(conn)
 }
 
-func post(path, body string) string {
-	return request(path, body, "")
+// post is a POST of body to /.
+func post(body string) string {
+	return request("/", body, "")
 }
 
 // postClose is post plus an explicit Connection: close.
-func postClose(path, body string) string {
-	return request(path, body, "Connection: close\r\n")
+func postClose(body string) string {
+	return request("/", body, "Connection: close\r\n")
 }
 
 func request(path, body, extra string) string {
@@ -299,7 +300,7 @@ func TestUndrainedBodyDoesNotDesyncNextRequest(t *testing.T) {
 	conn, reader := raw(t, addr)
 
 	for index := range 3 {
-		if _, err := conn.Write([]byte(post("/", "BODYBODYBODY"))); err != nil {
+		if _, err := conn.Write([]byte(post("BODYBODYBODY"))); err != nil {
 			t.Fatalf("write %d: %v", index, err)
 		}
 
@@ -325,7 +326,7 @@ func TestSmallResponseIsLengthDelimited(t *testing.T) {
 	}), time.Second)
 
 	conn, reader := raw(t, addr)
-	_, _ = conn.Write([]byte(post("/", "")))
+	_, _ = conn.Write([]byte(post("")))
 
 	resp, err := http.ReadResponse(reader, nil)
 	if err != nil {
@@ -376,7 +377,7 @@ func TestConnectionCloseIsHonored(t *testing.T) {
 	}), time.Second)
 
 	conn, reader := raw(t, addr)
-	_, _ = conn.Write([]byte(postClose("/", "")))
+	_, _ = conn.Write([]byte(postClose("")))
 
 	resp, err := http.ReadResponse(reader, nil)
 	if err != nil {
@@ -480,7 +481,7 @@ func TestIdleConnectionIsNotClosedByHeaderTimeout(t *testing.T) {
 
 	conn, reader := raw(t, addr)
 
-	_, _ = conn.Write([]byte(post("/", "")))
+	_, _ = conn.Write([]byte(post("")))
 
 	resp, err := http.ReadResponse(reader, nil)
 	if err != nil {
@@ -493,7 +494,7 @@ func TestIdleConnectionIsNotClosedByHeaderTimeout(t *testing.T) {
 	// Idle for well over the header timeout, then reuse the connection.
 	time.Sleep(400 * time.Millisecond)
 
-	if _, err = conn.Write([]byte(post("/", ""))); err != nil {
+	if _, err = conn.Write([]byte(post(""))); err != nil {
 		t.Fatalf("write after idle: %v", err)
 	}
 
@@ -554,7 +555,7 @@ func TestHeaderValueCannotSplitResponse(t *testing.T) {
 	}), time.Second)
 
 	conn, reader := raw(t, addr)
-	_, _ = conn.Write([]byte(postClose("/", "")))
+	_, _ = conn.Write([]byte(postClose("")))
 
 	resp, err := http.ReadResponse(reader, nil)
 	if err != nil {
