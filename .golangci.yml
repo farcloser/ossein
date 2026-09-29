@@ -169,7 +169,6 @@ linters:
           - wrapcheck
           - gosec
           - err113
-          - modernize
           - dogsled
           - noctx
           - perfsprint
