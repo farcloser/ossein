@@ -89,9 +89,8 @@ func execOssein(level string, args ...string) error {
 // own 4 vCPU / 8 GiB default; an instance already up for this project is
 // reused as it is.
 func detachArgv(level string) []string {
-	whole := strconv.Itoa(cli.WholeHost)
-
-	return osseinArgv(level, "buildkit", "--detach", "--cpus", whole, "--memory", whole)
+	return osseinArgv(level, "buildkit", "--detach",
+		"--cpus", strconv.Itoa(cli.WholeHost), "--memory", cli.FormatSize(cli.WholeHost))
 }
 
 // ensureBuildkit returns the BUILDKIT_HOST address for this directory's

@@ -56,7 +56,7 @@ func (c *runCmd) osseinArgs() ([]string, error) {
 
 	// Always sized explicitly: cli.WholeHost is what docker means by no
 	// --cpus / --memory at all.
-	var cpus, mib uint64 = cli.WholeHost, cli.WholeHost
+	var cpus, memory uint64 = cli.WholeHost, cli.WholeHost
 
 	if c.CPUs != "" {
 		parsed, err := parseCPUs(c.CPUs)
@@ -68,15 +68,15 @@ func (c *runCmd) osseinArgs() ([]string, error) {
 	}
 
 	if c.Memory != "" {
-		parsed, err := parseMemoryMiB(c.Memory)
+		parsed, err := parseMemory(c.Memory)
 		if err != nil {
 			return nil, err
 		}
 
-		mib = parsed
+		memory = parsed
 	}
 
-	args = append(args, "--cpus", strconv.FormatUint(cpus, decimal), "--memory", strconv.FormatUint(mib, decimal))
+	args = append(args, "--cpus", strconv.FormatUint(cpus, decimal), "--memory", cli.FormatSize(memory))
 
 	switch c.Network {
 	case "", "host", "bridge", "default":
@@ -168,9 +168,9 @@ func parseCPUs(value string) (uint64, error) {
 	return uint64(math.Ceil(cpus)), nil
 }
 
-// parseMemoryMiB reads docker's --memory (see memorySpec) and returns whole
-// MiB, rounded up, at least 1.
-func parseMemoryMiB(value string) (uint64, error) {
+// parseMemory reads docker's --memory (see memorySpec) and returns it in
+// bytes, rounded up to a whole byte; the VM rounds it up to a whole MiB.
+func parseMemory(value string) (uint64, error) {
 	match := memorySpec.FindStringSubmatch(strings.TrimSpace(value))
 	if match == nil {
 		return 0, fmt.Errorf(
@@ -186,9 +186,10 @@ func parseMemoryMiB(value string) (uint64, error) {
 	}
 
 	bytes := amount * memoryUnit(match[2])
-	if bytes <= 0 || math.IsInf(bytes, 0) || bytes >= math.MaxUint64 {
+	// cli.ParseSize, on ossein's side, reads no more than an int64 counts.
+	if bytes <= 0 || math.IsInf(bytes, 0) || bytes >= math.MaxInt64 {
 		return 0, fmt.Errorf("%w: --memory %q is not a positive size", errUnsupported, value)
 	}
 
-	return max(uint64(math.Ceil(bytes/bytesize.MiB)), 1), nil
+	return uint64(math.Ceil(bytes)), nil
 }

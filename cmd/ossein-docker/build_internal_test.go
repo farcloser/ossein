@@ -87,7 +87,7 @@ func TestDetachArgvSizesTheBuilderLikeADaemon(t *testing.T) {
 	t.Parallel()
 
 	got := detachArgv("info")
-	want := []string{"ossein", "--log-level", "info", "buildkit", "--detach", "--cpus", "0", "--memory", "0"}
+	want := []string{"ossein", "--log-level", "info", "buildkit", "--detach", "--cpus", "0", "--memory", "0B"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("detachArgv = %q, want %q", got, want)

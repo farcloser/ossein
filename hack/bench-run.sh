@@ -88,7 +88,7 @@ echo ">> ossein"
 # ossein boots on its embedded kernel + initfs (the shipping artifacts) — no override,
 # matching how bench-build measures ossein as it ships.
 read -r m md n <<<"$(run_med timed wipe_ossein -- \
-  "$OSSEIN" run --cpus "$CPUS" --memory "$MEM" "$BASE" sh -c "$WORKLOAD")"
+  "$OSSEIN" run --cpus "$CPUS" --memory "${MEM}MiB" "$BASE" sh -c "$WORKLOAD")"
 row ossein "$m" "$md" "$n"
 
 if command -v container >/dev/null 2>&1; then
