@@ -1003,8 +1003,6 @@ func (c *buildkitCmd) detach(
 // childCmd builds the foreground re-exec: global flags precede the subcommand
 // in kong, and --detach is omitted so the child runs in the foreground.
 // cacheLocal legitimately IS a forwarded CLI flag, not control coupling.
-//
-//revive:disable-next-line:flag-parameter
 func (c *buildkitCmd) childCmd(
 	art *container.Artifacts,
 	level, instanceID, sock, cacheDir string,
