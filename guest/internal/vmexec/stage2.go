@@ -73,7 +73,7 @@ func Stage2() error {
 // a pty comes from the container's devpts (after pivot), vsock stdio does not
 // (before pivot) — splitting the function would duplicate the whole sequence.
 //
-//nolint:gocognit // tty branches one ordered setup sequence; see above.
+//nolint:gocognit,funlen // tty branches one ordered setup sequence; see above.
 func run(specPath string, stdin, stdout, stderr uint, tty bool) error {
 	spec, err := loadSpec(specPath)
 	if err != nil {
