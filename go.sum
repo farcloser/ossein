@@ -135,8 +135,8 @@ github.com/moby/sys/userns v0.2.0 h1:nEtDtp7NCV/6dutSklNe8FrENPwFdc4mXnZqC/JWgXM
 github.com/moby/sys/userns v0.2.0/go.mod h1:IHUYgu/kao6N8YZlp9Cf444ySSvCmDlmzUcYfDHOl28=
 github.com/morikuni/aec v1.1.0 h1:vBBl0pUnvi/Je71dsRrhMBtreIqNMYErSAbEeb8jrXQ=
 github.com/morikuni/aec v1.1.0/go.mod h1:xDRgiq/iw5l+zkao76YTKzKttOp2cwPEne25HDkJnBw=
-github.com/mycophonic/primordium v0.10.0 h1:Rhx7wJLvbFSxy8IuXYttjWWF2N3Htwrntq81RzQPhXk=
-github.com/mycophonic/primordium v0.10.0/go.mod h1:Y/rNWpirlgvjesW/L6y6cKj/d51udniCzdzeZdtsT2k=
+github.com/mycophonic/primordium v0.10.1 h1:vY27+DvEaT90iauECBphP5xb6ynLQTv+Q+xtZ8bzqZw=
+github.com/mycophonic/primordium v0.10.1/go.mod h1:Y/rNWpirlgvjesW/L6y6cKj/d51udniCzdzeZdtsT2k=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
