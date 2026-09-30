@@ -250,6 +250,8 @@ func rootfsMountOpts(size uint64) []string {
 
 // Boot pulls the image, boots the VM, materializes the rootfs, and configures
 // guest networking — everything up to (not including) process creation.
+//
+//nolint:gocognit,funlen // one linear boot sequence, each stage timed and failing into the same teardown.
 func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (*Instance, *image.Image, error) {
 	instanceID := spec.InstanceID
 	if instanceID == "" {
@@ -292,106 +294,46 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	// is the single deliberate exception to completion-shape: it marks t=0
 	// and announces the run parameters before the first potentially slow
 	// stage.
-	clock := newStageClock()
+	bootStart := time.Now()
+	lastLap := bootStart
+	lap := func() (slog.Attr, slog.Attr) {
+		now := time.Now()
+		dur := slog.Duration("dur", now.Sub(lastLap))
+		lastLap = now
 
-	img, rootfsBlob, err := resolveRootfs(ctx, cache, spec, canonPlatform, rosetta, logger, clock)
-	if err != nil {
-		return nil, nil, err
+		return dur, slog.Duration("at", now.Sub(bootStart))
 	}
 
-	inst := &Instance{ID: instanceID, Dir: dir, spec: spec, img: img, rootfsPin: rootfsBlob}
-
-	consoleLog, err := inst.startVM(art, rosetta, logger, clock)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	err = inst.bootGuest(ctx, logger, clock)
-	if err == nil && rosetta {
-		err = setupRosetta(ctx, inst.agent)
-	}
-
-	if err != nil {
-		// Teardown must run to completion regardless of ctx (it is often
-		// already cancelled — that's why we're failing), so Close uses a
-		// fresh context.
-		inst.Close(context.Background()) //nolint:contextcheck // deliberate teardown context
-
-		return nil, nil, fmt.Errorf(consoleErrFmt, err, consoleLog)
-	}
-
-	stageDur, _ := clock.lap()
-	logger.InfoContext(ctx, "boot complete", stageDur, slog.Duration("total", clock.total()))
-
-	return inst, img, nil
-}
-
-// stageClock times Boot's stages under the convention Boot describes.
-type stageClock struct {
-	start, last time.Time
-}
-
-func newStageClock() *stageClock {
-	now := time.Now()
-
-	return &stageClock{start: now, last: now}
-}
-
-// lap closes a stage: its own cost (dur) and its completion offset from the
-// boot start (at).
-func (c *stageClock) lap() (dur, at slog.Attr) {
-	now := time.Now()
-	dur = slog.Duration("dur", now.Sub(c.last))
-	at = slog.Duration("at", now.Sub(c.start))
-	c.last = now
-
-	return dur, at
-}
-
-// total is the time since the boot started.
-func (c *stageClock) total() time.Duration {
-	return time.Since(c.start)
-}
-
-// resolveRootfs resolves spec's image and pins its flattened rootfs blob. The
-// blob must exist as a complete file BEFORE the VM exists: it is attached as a
-// read-only virtio-blk disk at VM creation (Virtualization.framework has no
-// hot-attach). A warm run pins the cached blob in about a millisecond; a cold
-// pull runs the whole fetch+flatten here, before any VM sits waiting on it —
-// which is why this stage is timed apart from the resolve. The pin holds the
-// blob against cache GC until Close.
-func resolveRootfs(
-	ctx context.Context,
-	cache image.Cache,
-	spec RunSpec,
-	platform string,
-	rosetta bool,
-	logger *slog.Logger,
-	clock *stageClock,
-) (*image.Image, *blobcache.PinnedFile, error) {
 	pull := spec.Pull
 	if pull == "" {
 		pull = image.PullMissing
 	}
 
 	logger.InfoContext(ctx, "resolving image",
-		"image", spec.Image, "platform", platform, "rosetta", rosetta, "pull", pull)
+		"image", spec.Image, "platform", canonPlatform, "rosetta", rosetta, "pull", pull)
 
-	img, err := image.Resolve(ctx, cache, spec.Image, platform, pull)
+	img, err := image.Resolve(ctx, cache, spec.Image, canonPlatform, pull)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	stageDur, stageAt := clock.lap()
+	stageDur, stageAt := lap()
 	logger.InfoContext(ctx, "image resolved",
-		slog.String("digest", img.Digest), slog.String("platform", platform), stageDur, stageAt)
+		slog.String("digest", img.Digest), slog.String("platform", canonPlatform), stageDur, stageAt)
 
+	// The flattened rootfs blob must exist as a complete file BEFORE the VM
+	// exists: it is attached as a read-only virtio-blk disk at VM creation
+	// (Virtualization.framework has no hot-attach). A warm run pins the
+	// cached blob in about a millisecond; a cold pull runs the whole
+	// fetch+flatten here, before any VM sits waiting on it — which is why
+	// this stage is timed apart from the resolve. The pin holds the blob
+	// against cache GC until Close.
 	rootfsBlob, err := img.RootfsFile()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	stageDur, stageAt = clock.lap()
+	stageDur, stageAt = lap()
 	logger.InfoContext(
 		ctx,
 		"rootfs blob pinned",
@@ -400,7 +342,116 @@ func resolveRootfs(
 		stageAt,
 	)
 
-	return img, rootfsBlob, nil
+	cpus := spec.CPUs
+	if cpus == 0 {
+		cpus = defaultCPUs
+	}
+
+	mem := spec.Memory
+	if mem == 0 {
+		mem = defaultMemory
+	}
+
+	consoleLog := spec.ConsoleLog
+	if consoleLog == "" {
+		consoleLog = filepath.Join(dir, "console.log")
+	}
+
+	rootfsSize := rootfsSizeFromMemory(mem)
+
+	// The whole materialization plan rides the kernel cmdline: vminitd mounts
+	// the tmpfs and extracts the blob AT INIT, overlapping the agent
+	// handshake and network setup — the host never issues rootfs mkdir/mount
+	// RPCs, and copyInRootfs merely awaits the result.
+	rootfsPath := guestRootfs(instanceID)
+	rootfsPlan := fmt.Sprintf("%s%s:%s:%s", rootfsPlanParam, rootfsBlobSerial, rootfsPath,
+		strings.Join(rootfsMountOpts(rootfsSize), ","))
+
+	// Networking is Virtualization.framework's own NAT now: no host-side stack
+	// to start, own or tear down — the VM either has a NIC on Apple's subnet or
+	// it has none.
+	machine, err := vm.New(vmConfig(art, spec, cpus, mem, consoleLog, rosetta, rootfsBlob.Path, rootfsPlan))
+	if err != nil {
+		_ = rootfsBlob.Release()
+
+		return nil, nil, err
+	}
+
+	stageDur, stageAt = lap()
+	logger.InfoContext(ctx, "microVM created",
+		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memory_mib", mem/bytesize.MiB),
+		slog.String("console", consoleLog), stageDur, stageAt)
+
+	if err = machine.Start(); err != nil {
+		return nil, nil, fmt.Errorf(consoleErrFmt, err, consoleLog)
+	}
+
+	inst := &Instance{
+		ID: instanceID, Dir: dir, vm: machine, rootfs: rootfsPath,
+		spec: spec, img: img, rootfsPin: rootfsBlob,
+	}
+	// Teardown must run to completion regardless of ctx (it is often already
+	// cancelled — that's why we're failing), so Close uses a fresh context.
+	fail := func(err error) (*Instance, *image.Image, error) { //nolint:contextcheck // deliberate teardown context
+		inst.Close(context.Background())
+
+		return nil, nil, fmt.Errorf(consoleErrFmt, err, consoleLog)
+	}
+
+	// Control channel. ConnectRetry honors the dial ctx, so cancelling Boot
+	// interrupts the retry loop; guest.Dial's handshake timeout is the overall
+	// patience bound.
+	logger.DebugContext(ctx, "dialing guest agent", "vsock_port", protocol.VsockPort)
+
+	agent, err := guest.Dial(ctx, func(dialCtx context.Context) (net.Conn, error) {
+		return machine.ConnectRetry(dialCtx, protocol.VsockPort, 20*time.Second)
+	})
+	if err != nil {
+		return fail(err)
+	}
+
+	inst.agent = agent
+
+	stageDur, stageAt = lap()
+	logger.InfoContext(ctx, "guest agent up", stageDur, stageAt)
+
+	if err := inst.copyInRootfs(ctx); err != nil {
+		return fail(err)
+	}
+
+	if err := inst.mountDisks(ctx, spec.Disks, logger); err != nil {
+		return fail(err)
+	}
+
+	stageDur, stageAt = lap()
+	logger.InfoContext(ctx, "rootfs extracted", stageDur, stageAt)
+
+	if err := inst.configureLoopback(ctx); err != nil {
+		return fail(err)
+	}
+
+	if spec.Network {
+		netCfg, err := inst.configureGuestNetwork(ctx)
+		if err != nil {
+			return fail(err)
+		}
+
+		stageDur, stageAt = lap()
+		logger.InfoContext(ctx, "guest network up", slog.String("cidr", netCfg.CIDR),
+			slog.String("gateway", netCfg.Gateway), slog.Any("dns", netCfg.Nameservers),
+			stageDur, stageAt)
+	}
+
+	if rosetta {
+		if err := setupRosetta(ctx, agent); err != nil {
+			return fail(err)
+		}
+	}
+
+	stageDur, _ = lap()
+	logger.InfoContext(ctx, "boot complete", stageDur, slog.Duration("total", time.Since(bootStart)))
+
+	return inst, img, nil
 }
 
 // vmConfig assembles the vz configuration from the run spec and resolved
@@ -511,6 +562,8 @@ func Doctor(ctx context.Context, art Artifacts, consoleLog string) error {
 
 // StartProcess creates + starts the container init process using the spec and
 // image captured at Boot, wiring stdio through host-side vsock relays.
+//
+//nolint:gocognit,funlen // one stdio listener per wired stream, each closing the earlier ones on error.
 func (i *Instance) StartProcess(ctx context.Context) error {
 	startTime := time.Now()
 	defer func() {
@@ -524,16 +577,70 @@ func (i *Instance) StartProcess(ctx context.Context) error {
 	}
 
 	// Host-side stdio listeners must exist before CreateProcess: the guest
-	// connects out to them. The stdin relay among them is detached from the
-	// RPC ctx by design (see wireStdio).
-	wiring, err := i.wireStdio() //nolint:contextcheck // the stdin relay outlives any request
-	if err != nil {
-		return err
+	// connects out to them. Track them so every error path below closes what
+	// was already opened — the ports are fixed, so a leaked listener would
+	// poison any retry on a still-live instance.
+	stdio := guest.StdioPorts{}
+
+	var (
+		relays    []func()
+		listeners []net.Listener
+	)
+
+	closeAll := func() {
+		for _, l := range listeners {
+			_ = l.Close()
+		}
 	}
 
-	err = i.agent.CreateProcess(ctx, i.ID, specJSON, wiring.ports)
-	if err != nil {
-		wiring.close()
+	if i.spec.Stdin != nil {
+		listener, err := i.vm.Listen(portStdin)
+		if err != nil {
+			return err
+		}
+
+		listeners = append(listeners, listener)
+		port := portStdin
+		stdio.Stdin = &port
+
+		// The stdin relay is detached from the RPC ctx by design: host stdin
+		// may outlive any request, and the guest-side close gets its own
+		// deadline inside the relay.
+		relays = append(relays, i.stdinRelay(listener)) //nolint:contextcheck // deliberate: see comment
+	}
+
+	if i.spec.Stdout != nil {
+		listener, err := i.vm.Listen(portStdout)
+		if err != nil {
+			closeAll()
+
+			return err
+		}
+
+		listeners = append(listeners, listener)
+		port := portStdout
+		stdio.Stdout = &port
+
+		relays = append(relays, i.outputRelay(listener, i.spec.Stdout))
+	}
+
+	if i.spec.Stderr != nil && !i.spec.TTY {
+		listener, err := i.vm.Listen(portStderr)
+		if err != nil {
+			closeAll()
+
+			return err
+		}
+
+		listeners = append(listeners, listener)
+		port := portStderr
+		stdio.Stderr = &port
+
+		relays = append(relays, i.outputRelay(listener, i.spec.Stderr))
+	}
+
+	if err := i.agent.CreateProcess(ctx, i.ID, specJSON, stdio); err != nil {
+		closeAll()
 
 		return err
 	}
@@ -543,32 +650,17 @@ func (i *Instance) StartProcess(ctx context.Context) error {
 	// Add happens here — before any goroutine and before StartProcess can
 	// return — so a CreateProcess failure leaves outRelays untouched and Wait
 	// never blocks on relays that were never armed.
-	i.outRelays.Add(len(wiring.relays))
+	i.outRelays.Add(len(relays))
 
-	for _, relay := range wiring.relays {
+	for _, relay := range relays {
 		go relay()
 	}
 
-	_, err = i.agent.StartProcess(ctx, i.ID)
-
-	return err
-}
-
-// stdioWiring is the host side of a process's stdio: the ports the guest
-// dials, the listeners behind them, and the relays to arm once the process
-// exists.
-type stdioWiring struct {
-	ports     guest.StdioPorts
-	listeners []net.Listener
-	relays    []func()
-}
-
-// close closes every listener opened so far: the ports are fixed, so a
-// leaked listener would poison any retry on a still-live instance.
-func (w *stdioWiring) close() {
-	for _, listener := range w.listeners {
-		_ = listener.Close()
+	if _, err := i.agent.StartProcess(ctx, i.ID); err != nil {
+		return err
 	}
+
+	return nil
 }
 
 // Wait blocks until the init process exits, drains the stdout/stderr relays,
@@ -758,170 +850,6 @@ func (i *Instance) serveProxy(listener net.Listener, port uint32) {
 			bidiPipe(conn, gconn)
 		}()
 	}
-}
-
-// startVM sizes and creates the instance's microVM, with the pinned rootfs
-// blob attached and its materialization plan on the kernel cmdline, and
-// starts it. It returns the console log path every later boot error names.
-func (i *Instance) startVM(art Artifacts, rosetta bool, logger *slog.Logger, clock *stageClock) (string, error) {
-	spec := i.spec
-
-	cpus := spec.CPUs
-	if cpus == 0 {
-		cpus = defaultCPUs
-	}
-
-	mem := spec.Memory
-	if mem == 0 {
-		mem = defaultMemory
-	}
-
-	consoleLog := spec.ConsoleLog
-	if consoleLog == "" {
-		consoleLog = filepath.Join(i.Dir, "console.log")
-	}
-
-	// The whole materialization plan rides the kernel cmdline: vminitd mounts
-	// the tmpfs and extracts the blob AT INIT, overlapping the agent
-	// handshake and network setup — the host never issues rootfs mkdir/mount
-	// RPCs, and copyInRootfs merely awaits the result.
-	i.rootfs = guestRootfs(i.ID)
-	rootfsPlan := fmt.Sprintf("%s%s:%s:%s", rootfsPlanParam, rootfsBlobSerial, i.rootfs,
-		strings.Join(rootfsMountOpts(rootfsSizeFromMemory(mem)), ","))
-
-	// Networking is Virtualization.framework's own NAT now: no host-side stack
-	// to start, own or tear down — the VM either has a NIC on Apple's subnet or
-	// it has none.
-	machine, err := vm.New(vmConfig(art, spec, cpus, mem, consoleLog, rosetta, i.rootfsPin.Path, rootfsPlan))
-	if err != nil {
-		_ = i.rootfsPin.Release()
-
-		return "", err
-	}
-
-	stageDur, stageAt := clock.lap()
-	logger.Info("microVM created",
-		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memory_mib", mem/bytesize.MiB),
-		slog.String("console", consoleLog), stageDur, stageAt)
-
-	err = machine.Start()
-	if err != nil {
-		return "", fmt.Errorf(consoleErrFmt, err, consoleLog)
-	}
-
-	i.vm = machine
-
-	return consoleLog, nil
-}
-
-// bootGuest brings the guest up behind the started VM: the agent handshake,
-// the rootfs vminitd materializes on its own, the cache disks, loopback, and
-// the network when the spec asks for it.
-func (i *Instance) bootGuest(ctx context.Context, logger *slog.Logger, clock *stageClock) error {
-	// Control channel. ConnectRetry honors the dial ctx, so cancelling Boot
-	// interrupts the retry loop; guest.Dial's handshake timeout is the overall
-	// patience bound.
-	logger.DebugContext(ctx, "dialing guest agent", "vsock_port", protocol.VsockPort)
-
-	agent, err := guest.Dial(ctx, func(dialCtx context.Context) (net.Conn, error) {
-		return i.vm.ConnectRetry(dialCtx, protocol.VsockPort, 20*time.Second)
-	})
-	if err != nil {
-		return err
-	}
-
-	i.agent = agent
-
-	stageDur, stageAt := clock.lap()
-	logger.InfoContext(ctx, "guest agent up", stageDur, stageAt)
-
-	err = i.copyInRootfs(ctx)
-	if err != nil {
-		return err
-	}
-
-	err = i.mountDisks(ctx, i.spec.Disks, logger)
-	if err != nil {
-		return err
-	}
-
-	stageDur, stageAt = clock.lap()
-	logger.InfoContext(ctx, "rootfs extracted", stageDur, stageAt)
-
-	err = i.configureLoopback(ctx)
-	if err != nil {
-		return err
-	}
-
-	if i.spec.Network {
-		var netCfg guestNetwork
-
-		netCfg, err = i.configureGuestNetwork(ctx)
-		if err != nil {
-			return err
-		}
-
-		stageDur, stageAt = clock.lap()
-		logger.InfoContext(ctx, "guest network up", slog.String("cidr", netCfg.CIDR),
-			slog.String("gateway", netCfg.Gateway), slog.Any("dns", netCfg.Nameservers),
-			stageDur, stageAt)
-	}
-
-	return nil
-}
-
-// wireStdio opens a host listener for each stream the spec wires. On error,
-// what was already opened is closed.
-func (i *Instance) wireStdio() (*stdioWiring, error) {
-	wiring := &stdioWiring{}
-
-	if i.spec.Stdin != nil {
-		listener, err := i.vm.Listen(portStdin)
-		if err != nil {
-			return nil, err
-		}
-
-		wiring.listeners = append(wiring.listeners, listener)
-		port := portStdin
-		wiring.ports.Stdin = &port
-
-		// The stdin relay is detached from the RPC ctx by design: host stdin
-		// may outlive any request, and the guest-side close gets its own
-		// deadline inside the relay.
-		wiring.relays = append(wiring.relays, i.stdinRelay(listener))
-	}
-
-	if i.spec.Stdout != nil {
-		listener, err := i.vm.Listen(portStdout)
-		if err != nil {
-			wiring.close()
-
-			return nil, err
-		}
-
-		wiring.listeners = append(wiring.listeners, listener)
-		port := portStdout
-		wiring.ports.Stdout = &port
-
-		wiring.relays = append(wiring.relays, i.outputRelay(listener, i.spec.Stdout))
-	}
-
-	if i.spec.Stderr != nil && !i.spec.TTY {
-		listener, err := i.vm.Listen(portStderr)
-		if err != nil {
-			wiring.close()
-
-			return nil, err
-		}
-
-		wiring.listeners = append(wiring.listeners, listener)
-		port := portStderr
-		wiring.ports.Stderr = &port
-
-		wiring.relays = append(wiring.relays, i.outputRelay(listener, i.spec.Stderr))
-	}
-
-	return wiring, nil
 }
 
 // flushDisks persists the cache disks before the VM dies: sync flushes the
