@@ -1,0 +1,97 @@
+# This project's carve-outs from the Go lint baseline (.limen/lint-go.yaml):
+# the baseline's sections, in its shape, holding only what this project adds,
+# changes or takes out. `just do lint go` renders the two on every run
+# (book/per-language.md, "one baseline, per-project carve-outs").
+licenses:
+  # go-licenses cannot locate the license of these two Apache-2.0 modules (the
+  # buildkit client's provenance types): in-toto/attestation's Go module lives in
+  # a subdirectory below the repository's LICENSE, and in-toto-golang trips the
+  # same module-layout detection (google/go-licenses#186). Both licenses were
+  # read from the module cache when this was added; re-check on a major bump.
+  ignore:
+    - github.com/in-toto/attestation
+    - github.com/in-toto/in-toto-golang
+
+golangci:
+  linters:
+    exclusions:
+      paths:
+        # A vendored upstream fork (third_party/vz/FORK.md), held as close to
+        # upstream as possible so it can be refreshed or dropped cheaply.
+        - third_party/vz
+      rules:
+        # Tests are black-box consumers: the rules about API hygiene and
+        # production robustness do not apply to them, the rules about
+        # correctness do (errcheck stays on: a test that ignores an error can
+        # pass for the wrong reason). The baseline already exempts tests from
+        # gocognit, goconst, gosec, varnamelen and wrapcheck; these are the rest.
+        - path: _test\.go
+          linters:
+            - dupl # test cases are meant to look alike
+            - dupword # test data
+            - err113 # dynamic errors are fine in fixtures
+            - dogsled # multiple-return helpers are exercised for one value at a time
+            - noctx # no cancellation to propagate
+            - perfsprint # readability over allocations
+            - mnd # fixture values
+        # hack/bench is a measurement harness: ad-hoc errors from a fatal()
+        # that exits are the point of it, not a defect.
+        - path: ^hack/bench/
+          linters:
+            - err113
+    settings:
+      wrapcheck:
+        # Errors from this module's own packages are folded into sentinels and
+        # given context at their source; re-wrapping them in every caller is
+        # noise.
+        ignore-package-globs:
+          - github.com/farcloser/ossein/*
+      depguard:
+        rules:
+          main:
+            allow:
+              - github.com/mycophonic/primordium
+              # CLI
+              - github.com/alecthomas/kong
+              # Containers
+              - github.com/google/go-containerregistry
+              - github.com/opencontainers/runtime-spec
+              # Build: cmd/ossein-docker speaks to buildkitd through its client
+              # library; fsutil is its local-mount type; grpc only registers the
+              # credentials service on the build session.
+              - github.com/moby/buildkit
+              - github.com/tonistiigi/fsutil
+              - google.golang.org/grpc
+              # EROFS rootfs images: the fork carrying Writer.Link (shared-inode
+              # hardlinks), see pkg/image/goerofs.go.
+              - github.com/forkcloser/erofs
+              # Disk images (per-project buildkit cache volumes)
+              - github.com/diskfs/go-diskfs
+              - golang.org/x/term
+              # Host-guest RPC: connect over net/http, protobuf messages.
+              - connectrpc.com/connect
+              - google.golang.org/protobuf
+              - golang.org/x/sys/unix
+              # Guest side (guest/): the PID-1 agent's runtime
+              - github.com/mdlayher/vsock
+              - github.com/moby/sys/capability
+              - github.com/vishvananda/netlink
+              # The flattened rootfs is lz4-framed.
+              - github.com/pierrec/lz4
+      forbidigo:
+        forbid:
+          - pattern: '^os\.UserHomeDir$'
+            msg: "use dirs.HomeDir instead"
+  formatters:
+    exclusions:
+      paths:
+        # Reformatting the vendored fork would make its diff against upstream
+        # unreadable, and would be undone on every refresh.
+        - third_party/vz
+nilaway:
+  # Informational for now. Of the six reports on this tree, two are fixed in
+  # code; the four left are flows NilAway cannot follow: an argv built by
+  # append, which is never empty; guards behind t.Fatalf or a short-circuit;
+  # and a test passing a nil cache to prove the cache is never touched.
+  # Blocking returns once those are settled.
+  blocking: false

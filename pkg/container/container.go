@@ -251,7 +251,7 @@ func rootfsMountOpts(size uint64) []string {
 // Boot pulls the image, boots the VM, materializes the rootfs, and configures
 // guest networking — everything up to (not including) process creation.
 //
-//nolint:gocognit,funlen // one linear boot sequence, each stage timed and failing into the same teardown.
+//nolint:gocognit // one linear boot sequence, each stage timed and failing into the same teardown.
 func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (*Instance, *image.Image, error) {
 	instanceID := spec.InstanceID
 	if instanceID == "" {
@@ -563,7 +563,7 @@ func Doctor(ctx context.Context, art Artifacts, consoleLog string) error {
 // StartProcess creates + starts the container init process using the spec and
 // image captured at Boot, wiring stdio through host-side vsock relays.
 //
-//nolint:gocognit,funlen // one stdio listener per wired stream, each closing the earlier ones on error.
+//nolint:gocognit // one stdio listener per wired stream, each closing the earlier ones on error.
 func (i *Instance) StartProcess(ctx context.Context) error {
 	startTime := time.Now()
 	defer func() {

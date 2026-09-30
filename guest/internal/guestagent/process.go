@@ -79,7 +79,7 @@ func procKey(id, containerID string) string {
 // (mounts, pivot_root, caps, uid), then blocks on a start gate. It returns once
 // the child reports ready.
 //
-//nolint:gocognit,funlen // one ordered acquisition sequence under a shared rollback (abort, then kill).
+//nolint:gocognit // one ordered acquisition sequence under a shared rollback (abort, then kill).
 func (a *Agent) CreateProcess(ctx context.Context, req *pb.CreateProcessRequest) (*pb.CreateProcessResponse, error) {
 	key := procKey(req.GetId(), req.GetContainerID())
 

@@ -7,13 +7,6 @@ import '.limen/just/main.just'
 # binary is darwin/arm64-only.
 export GO_CGO := '1'
 
-# go-licenses cannot locate the license of these two Apache-2.0 modules (the
-# buildkit client's provenance types): in-toto/attestation's Go module lives in
-# a subdirectory below the repository's LICENSE, and in-toto-golang trips the
-# same module-layout detection (google/go-licenses#186). Both licenses were
-# read from the module cache when this was added; re-check on a major bump.
-export LINT_GO_LICENSES_FLAGS := '--ignore=github.com/in-toto/attestation --ignore=github.com/in-toto/in-toto-golang'
-
 # ossein-kernel release embedded into the ossein binary (pkg/guestartifacts): pinned in
 # pins.yaml (guest-kernel), read inside fetch-kernel with `limen pins get`. The pinned
 # kernel MUST be built with CONFIG_BLK_DEV_INITRD=y: the guest boots a cpio via rdinit=
@@ -43,10 +36,15 @@ buildkit_ref := buildkit_repo + ":" + buildkit_tag + "@" + buildkit_digest
 # invisible to it. The guest-* and tools-lint recipes are that missing half, and
 # they are not optional extras: without them the PID-1 code ships unanalyzed and
 # the linux-only bench tools are analyzed by nothing at all.
-lint: _guest-artifacts do::lint::default do::lint::go::default do::lint::go::bce do::lint::go::escape do::lint::go::deadcode tools-lint
-    {{ linux_env }} golangci-lint run {{ guest_pkgs }}
-    # build/tools/govulncheck is built natively by the shared vuln leg this recipe
-    # depends on; run it, not a PATH one.
+lint: _guest-artifacts do::lint::default do::lint::go::default do::lint::go::deadcode tools-lint
+    # build/tools/golangci-lint, on the build/golangci.yml it renders, is built
+    # natively by the shared leg this recipe depends on; run it, not a PATH one.
+    {{ linux_env }} build/tools/golangci-lint run -c build/golangci.yml {{ guest_pkgs }}
+
+# The security lane plus the guest's half of it: the shared vuln leg scans what
+# builds natively, and the guest is linux-only. build/tools/govulncheck is built
+# by that leg.
+security: _guest-artifacts do::security::default
     {{ linux_env }} build/tools/govulncheck {{ guest_pkgs }}
 
 fix: do::fix::default do::fix::go::default
@@ -126,7 +124,7 @@ guest-test dir=(justfile_directory() / "build/guest-tests"):
 # hack/bench is //go:build linux, so the native legs never load it. ./hack/...
 # rather than the one package: whatever lands here next is covered by default.
 tools-lint:
-    {{ linux_env }} golangci-lint run ./hack/...
+    {{ linux_env }} build/tools/golangci-lint run -c build/golangci.yml ./hack/...
 
 # Shared host↔guest constants (vsock port, protocol revision, init path) live in
 # internal/protocol; never copy one into each side.
