@@ -11,7 +11,7 @@ checksum:
 
 registries:
   - type: standard
-    ref: v4.567.0 # renovate: depName=aquaproj/aqua-registry
+    ref: v4.568.0 # renovate: depName=aquaproj/aqua-registry
   - name: local
     type: local
     path: .limen/aqua-registry.yaml
@@ -37,7 +37,7 @@ packages:
   - name: protocolbuffers/protobuf-go/protoc-gen-go@v1.36.12
   - name: uutils/coreutils@0.12.0
     registry: local
-  - name: quint-co/quint@v0.32.0 # renovate: depName=quint-co/quint
+  - name: quint-co/quint@v0.33.0 # renovate: depName=quint-co/quint
     registry: local
   - name: forkcloser/curl@v8.21.0
     registry: local
