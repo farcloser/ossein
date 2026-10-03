@@ -113,8 +113,8 @@ github.com/mdlayher/socket v0.7.0 h1:qVREPVwtUMg17pwvveQxpurq0PVisMxi3FGgpsorMYQ
 github.com/mdlayher/socket v0.7.0/go.mod h1:f7iKql2EK/rfsWYDKofKjk2Ig7I+6HQWdMIdn1tO4A4=
 github.com/mdlayher/vsock v1.3.0 h1:bqQfZ1OznI03y6YiXp2sze05RVdzLn/zsfjnjd4+ivI=
 github.com/mdlayher/vsock v1.3.0/go.mod h1:WsuksavOvwCnV5UqGHUkvAvCy+Dqy81y4goKQTzxxNY=
-github.com/moby/buildkit v0.33.0 h1:zBbt1FiMcTB/oFg1iCNcKa83k5Rn8MGcVjXFIcfYhuQ=
-github.com/moby/buildkit v0.33.0/go.mod h1:uNKSZnfMk1aSa18JiCR5BT68M/3jIDGo6XuAByUK3ek=
+github.com/moby/buildkit v0.33.1 h1:UUrdifmRdRadykO+f5l8BT1CseUXst2sJHV7AmkjjxE=
+github.com/moby/buildkit v0.33.1/go.mod h1:584wW8T/WG4O+lpXUCoDaWEc5e+rTGC3iP+l9mNcX8E=
 github.com/moby/locker v1.0.1 h1:fOXqR41zeveg4fFODix+1Ch4mj/gT0NE1XJbp/epuBg=
 github.com/moby/locker v1.0.1/go.mod h1:S7SDdo5zpBK84bzzVlKr2V0hz+7x9hWbYC/kq7oQppc=
 github.com/moby/patternmatcher v0.6.1 h1:qlhtafmr6kgMIJjKJMDmMWq7WLkKIo23hsrpR3x084U=
