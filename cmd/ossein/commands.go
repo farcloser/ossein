@@ -70,7 +70,7 @@ func sizeWholeHost(cpus uint, memory memorySize) (uint, memorySize) {
 const (
 	// guestBkSock is where buildkitd listens inside the container; hostBkSock
 	// is the per-instance socket filename on the host. The buildkit image pin
-	// itself lives in the Justfile (buildkit_tag + buildkit_digest) and is linked
+	// itself lives in the .justfile (buildkit_tag + buildkit_digest) and is linked
 	// in as main.buildkitImage.
 	guestBkSock = "/run/buildkit/buildkitd.sock"
 	hostBkSock  = "buildkitd.sock"
@@ -642,7 +642,7 @@ type buildkitCmd struct {
 	CPUs   uint       `default:"4"    help:"vCPUs (0: every host CPU)"                                     name:"cpus"`
 	Memory memorySize `default:"8GiB" help:"memory, with a unit: 8GiB, 512MiB, 1.5GB (0: all host memory)"`
 	// The default is the digest-pinned image linked in at build time (main.buildkitImage,
-	// fed from the Justfile); kong interpolates it via kong.Vars.
+	// fed from the .justfile); kong interpolates it via kong.Vars.
 	Image      string `default:"${buildkit_image}"                                                                                             help:"buildkit image (digest-pinned by default)"`
 	Sock       string `help:"host unix socket path (default: state dir)"`
 	ConsoleLog string `help:"guest console log file"                                                                                           name:"console-log"`

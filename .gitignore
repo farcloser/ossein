@@ -16,7 +16,6 @@ WIP_*
 
 # Build output and Go artifacts (subprojects keep their own .gitignore too)
 /build
-/tmp
 
 # Guest artifacts embedded at build time (just build fetches/builds them)
 /pkg/guestartifacts/kernel-arm64
@@ -25,3 +24,6 @@ WIP_*
 # Engineering journals (docs/): local notes and measurement records, kept
 # next to the code and out of the repository — the README is what ships.
 /docs/
+
+# Required by limen (book/mandatory-files.md, ".gitignore").
+.claude

@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 # Twin of `just build` and `do build go`: same embedded artifacts, flags, and
 # ad-hoc codesign — a change to one lands in all three. macos-26 runner because
 # the vendored vz needs the macOS 26 SDK.
