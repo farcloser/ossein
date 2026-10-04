@@ -16,7 +16,6 @@ WIP_*
 
 # Build output and Go artifacts (subprojects keep their own .gitignore too)
 /build
-/tmp
 
 # Guest artifacts embedded at build time (just build fetches/builds them)
 /pkg/guestartifacts/kernel-arm64
