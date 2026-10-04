@@ -10,106 +10,157 @@ set quiet
 # Shared private _banner recipe (see lib.just).
 import 'lib.just'
 
-default: code mod vuln licenses
+default: code vet mod licenses nilaway
 
-# golangci-lint, once per supported platform (see _per-goos in lib.just:
-# platform-specific files are only analyzed for the GOOS that builds them).
-# The formatter is build-graph-independent and runs once. The last step bans
-# blanket revive suppressions: nolintlint polices golangci directives, and
-# revive findings proved environment-nondeterministic across the per-GOOS
-# legs — the suppression itself then flakes as "unused". revive's own
-# selective directives are invisible to nolintlint, hence stable.
-code: (_banner "lint go" "go") (_per-goos "golangci-lint run")
-    golangci-lint fmt --diff
-    @if git grep -nE 'nolint:[a-z, ]*revive' -- '*.go'; then echo 'blanket revive suppression is banned — use //revive:disable-next-line:<rule> (or a disable/enable block) instead' >&2; exit 1; fi
+# golangci-lint, built here by the pinned toolchain from tools/golangci-lint
+# (its own module, so its analyzers' dependencies stay upstream's; see _go-tool
+# in lib.just), on the configuration limen-lint-go renders from the baseline
+# and the project's .lint-go.yaml (see _golangci-config in lib.just: the file
+# lives under build/, so `-c` names it and golangci ignores any root
+# .golangci.yml), then once per supported platform (see _per-platform:
+# platform-specific files are only analyzed for the GOOS/GOARCH that builds
+# them). Built with the toolchain it analyzes, it cannot skew from it — the
+# reason the prebuilt binary and its lockstep check are gone.
+# The formatter is build-graph-independent and runs once. The last step
+# enforces the suppression doctrine (book/per-language.md, "silencing a
+# finding"): a finding is silenced by its rule, never by its linter.
+code: (_banner "lint go" "go") (_go-tool "golangci-lint" "github.com/golangci/golangci-lint/v2/cmd/golangci-lint") _golangci-config (_per-platform "build/tools/golangci-lint run -c build/golangci.yml") _suppression-check
+    build/tools/golangci-lint fmt --diff -c build/golangci.yml
 
-# go.mod/go.sum tidiness — fails printing the diff; `just do fix go mod` repairs.
+# Polices the shape the book requires (per-language.md, "silencing a
+# finding"): nolintlint checks a directive's form, not which linter it names,
+# and bag linters (revive, gosec, staticcheck) must be silenced per rule.
+# Tracked Go files only.
+[private]
+_suppression-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fail=0
+    # ban <message> <pattern> [<allowed-pattern>]: every tracked Go line matching
+    # <pattern> and not <allowed-pattern> is a violation.
+    ban() {
+        local hits
+        hits="$(git grep -nE "$2" -- '*.go' || true)"
+        if [ -n "$hits" ] && [ -n "${3:-}" ]; then hits="$(printf '%s\n' "$hits" | grep -vE "$3" || true)"; fi
+        if [ -n "$hits" ]; then printf '%s\n' "$hits" >&2; echo "$1" >&2; fail=1; fi
+    }
+    ban 'blanket revive suppression is banned — use //revive:disable-next-line:<rule> (or a disable/enable block)' \
+        'nolint:[a-z, ]*revive'
+    ban 'blanket gosec suppression is banned — use gosec'"'"'s own // #nosec G### -- reason (on its own comment line when combined with a //nolint)' \
+        'nolint:[a-z, ]*gosec'
+    ban '#nosec must name its rule(s): // #nosec G### -- reason' \
+        '#nosec' '#nosec( G[0-9]{3})+( --|[[:space:]]*$)'
+    ban 'staticcheck suppressions must name the check in the reason: //nolint:staticcheck // SA####: reason' \
+        'nolint:[a-z, ]*staticcheck' '(^|[^A-Z])(SA|ST|S|QF)[0-9]{4}([^0-9]|$)'
+    ban 'bare //nolint is banned — name the linter (or, for a bag linter, the rule)' \
+        '//nolint(:all)?([^a-z:]|$)'
+    # A revive directive naming a rule the rendered configuration turns off
+    # silences nothing, and nolintlint does not read revive's syntax: this is
+    # the only place a stale one is ever reported.
+    while IFS= read -r rule; do
+        [ -n "$rule" ] || continue
+        ban "revive's ${rule} is off in the baseline: this directive silences nothing — remove it (or move the finding to the linter that owns the check now)" \
+            "//revive:(disable|enable)[a-z-]*:${rule}([^a-z-]|$)"
+    done < <(${LIMEN_LINT_GO_BIN:-limen-lint-go} disabled revive)
+    # Same for a //nolint naming a linter the configuration turns off:
+    # nolintlint judges a directive only for a linter that runs.
+    while IFS= read -r linter; do
+        [ -n "$linter" ] || continue
+        ban "${linter} is off in the configuration: naming it in //nolint silences nothing — remove it from the directive" \
+            "//nolint:([a-z0-9_]+,)*${linter}([^a-z0-9_]|$)"
+    done < <(${LIMEN_LINT_GO_BIN:-limen-lint-go} disabled linters)
+    # The baseline exempts _test.go from gosec, and nolintlint never reads
+    # gosec's own directive: a #nosec in a test file silences nothing. Tied
+    # to that exclusion: drop this if the baseline ever lints tests with gosec.
+    hits="$(git grep -nE '#nosec' -- '*_test.go' || true)"
+    if [ -n "$hits" ]; then
+        printf '%s\n' "$hits" >&2
+        echo 'tests are exempt from gosec in the baseline: this #nosec silences nothing — remove it' >&2
+        fail=1
+    fi
+    exit "$fail"
+
+# The two `go vet` analyzers golangci-lint cannot run: its package loader never
+# hands analyzers a package's non-Go files, so asmdecl (assembly against the Go
+# declarations it implements) and buildtag (constraints in non-Go files) report
+# nothing through it whatever the govet configuration says — even
+# `enable-all`. Broken amd64 assembly passed `lint go` on the amd64 CI legs
+# for exactly that reason. Scoped to those two on purpose: `go vet` reads
+# neither the rendered configuration nor //nolint, so any analyzer that overlaps with
+# golangci's govet would re-report findings a project deliberately silenced,
+# and the same exception would then have to be written twice. Every
+# supported platform, like the rest (see _per-platform in lib.just); vet
+# type-checks without an assembler or C toolchain, so each leg is a few
+# seconds. Note `go test` is not a backstop here: the vet subset it runs
+# excludes both analyzers.
+vet: (_banner "lint go" "vet") (_per-platform "go vet -asmdecl -buildtag ./...")
+
+# go.mod/go.sum tidiness, for the module and for tools/ (the Go-built tools'
+# own module — see _go-tool in lib.just). Fails printing the diff; `just do fix
+# go mod` repairs.
 mod: (_banner "lint go" "mod")
+    #!/usr/bin/env bash
+    set -euo pipefail
     go mod tidy -diff
+    go -C tools mod tidy -diff
+    # The isolated tool modules too (tools/<name>/go.mod, see _go-tool).
+    for m in tools/*/go.mod; do
+        [ -f "$m" ] && go -C "${m%/go.mod}" mod tidy -diff
+    done
 
-# Known-vulnerability scan against the Go vulnerability database (network:
-# govulncheck fetches vuln.go.dev), once per supported platform (see _per-goos
-# in lib.just: call paths and dependencies differ by GOOS).
-vuln: (_banner "lint go" "vuln") (_per-goos "govulncheck ./...")
+# NilAway (go.uber.org/nilaway), Uber's nil-panic analyzer: not a golangci-lint
+# linter and never to become one (its false positives are by design), so a
+# lane of its own, built from tools/nilaway (a module of its own, pinned by
+# pseudo-version) and run once per supported platform like the other
+# analyzers (see _per-platform in lib.just). limen-lint-go carries its flags
+# from the baseline and the project's .lint-go.yaml: -include-pkgs bounds
+# the analysis to the module, the exclude lists are the only suppression it
+# has (no per-line directive). Blocking by default; a project carrying a
+# backlog sets nilaway.blocking: false in its overlay and the findings print
+# without failing the lane.
+nilaway: (_banner "lint go" "nilaway") (_go-tool "nilaway" "go.uber.org/nilaway/cmd/nilaway")
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flags=$(${LIMEN_LINT_GO_BIN:-limen-lint-go} flags nilaway)
+    mode=$(${LIMEN_LINT_GO_BIN:-limen-lint-go} mode nilaway)
+    fail=0
+    # The platform loop of _per-platform, inline: a leg's failure must not
+    # stop the others, and the verdict depends on the mode.
+    if [ "{{ go_cgo }}" = "1" ]; then
+        echo "CGO_ENABLED=1: cross-platform runs are impossible (foreign-platform package" >&2
+        echo "loading needs that platform's C toolchain) — native platform only." >&2
+        # shellcheck disable=SC2086 # the flags are a list by contract
+        build/tools/nilaway $flags ./... || fail=1
+    else
+        platforms=(darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64)
+        for platform in "${platforms[@]}"; do
+            echo "→ GOOS=${platform%/*} GOARCH=${platform#*/}"
+            # shellcheck disable=SC2086 # the flags are a list by contract
+            CGO_ENABLED=0 GOOS="${platform%/*}" GOARCH="${platform#*/}" build/tools/nilaway $flags ./... || fail=1
+        done
+    fi
+    if [ "$fail" = 1 ] && [ "$mode" != blocking ]; then
+        echo "nilaway: findings above are informational for this project (nilaway.blocking is false in .lint-go.yaml)" >&2
+        exit 0
+    fi
+    exit "$fail"
 
-# Dependency license compliance, once per supported platform (see _per-goos in
-# lib.just: each GOOS pulls its own dependencies). A project that needs extra
-# flags — typically --ignore=<module> for the module-layout false positives of
-# https://github.com/google/go-licenses/issues/186 — exports them from its
-# root Justfile, the home of all project customization (the variable name
-# mirrors the task path `lint go licenses`):
-#     export LINT_GO_LICENSES_FLAGS := '--ignore=gotest.tools/v3'
-# For a one-off, set it on the invocation instead:
-# LINT_GO_LICENSES_FLAGS='--ignore=x' just do lint go licenses
+# Dependency license compliance, once per supported platform (see _per-platform in
+# lib.just: each platform pulls its own dependencies). The allowed licenses
+# are the baseline's (.limen/lint-go.yaml) and the ignored modules
+# (typically the false positives of google/go-licenses#186) the project's
+# .lint-go.yaml `licenses` section; limen-lint-go prints the flags for both
+# (LIMEN_LINT_GO_BIN: see _golangci-config in lib.just).
 #
 # GOROOT is passed explicitly because go-licenses recognizes stdlib packages by
-# their location under GOROOT — but, being a go_install binary, its built-in
-# default is the GOROOT of whatever toolchain COMPILED it. When that differs
-# from the pinned toolchain on PATH (which is where packages actually load
-# from), every stdlib package degrades to "does not have module info" errors.
-licenses: (_banner "lint go" "licenses") (_per-goos 'GOROOT="$(go env GOROOT)" go-licenses check --include_tests --allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT ${LINT_GO_LICENSES_FLAGS:-} ./...')
-
-# Bounds-check-elimination report: every bounds check the compiler could NOT
-# eliminate, for performance tuning. Informational — it never fails, so it is
-# not in the default set; and it reports for the native architecture only,
-# since BCE results are arch-specific and this is a report for the human
-# reading it, not a gate.
-bce: (_banner "lint go" "bce")
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "Bounds Check Elimination Report"
-    echo "================================"
-    echo ""
-    output=$(go build -gcflags='-d=ssa/check_bce/debug=1' ./... 2>&1 | grep -v '^#' || true)
-    if [ -z "$output" ]; then
-        echo "No bounds checks detected (BCE fully eliminated)."
-    else
-        total=$(echo "$output" | wc -l | tr -d ' ')
-        echo "Total: $total bounds checks"
-        echo ""
-        echo "By file:"
-        echo "$output" | sed 's/:.*$//' | sort | uniq -c | sort -rn
-        echo ""
-        echo "Details:"
-        echo "$output" | sort
-    fi
-
-# Escape-analysis and inlining report — both come from the same compiler pass
-# (-gcflags=-m): values the compiler moved to the heap (the prime source of GC
-# pressure) and functions it refused to inline, with the reason. Informational
-# like bce: never fails, native architecture only, not in the default set.
-escape: (_banner "lint go" "escape")
-    #!/usr/bin/env bash
-    set -euo pipefail
-    output=$(go build -gcflags='-m' ./... 2>&1 | grep -v '^#' || true)
-    heap=$(echo "$output" | grep -E 'escapes to heap|moved to heap' || true)
-    noinline=$(echo "$output" | grep 'cannot inline' || true)
-    echo "Escape Analysis Report"
-    echo "======================"
-    if [ -z "$heap" ]; then
-        echo "No heap escapes."
-    else
-        echo "Total: $(echo "$heap" | wc -l | tr -d ' ') heap escapes"
-        echo ""
-        echo "By file:"
-        echo "$heap" | sed 's/:.*$//' | sort | uniq -c | sort -rn
-        echo ""
-        echo "$heap" | sort
-    fi
-    echo ""
-    echo "Inlining Failures"
-    echo "================="
-    if [ -z "$noinline" ]; then
-        echo "None."
-    else
-        echo "Total: $(echo "$noinline" | wc -l | tr -d ' ') functions the compiler could not inline"
-        echo ""
-        echo "$noinline" | sort
-    fi
+# their location under GOROOT, reading its default from its own build. _go-tool
+# compiles it with the pinned toolchain, so the two agree by construction; the
+# explicit value keeps that true even when a project overrides GOROOT.
+licenses: (_banner "lint go" "licenses") (_go-tool "go-licenses" "github.com/google/go-licenses/v2") (_per-platform 'GOROOT="$(go env GOROOT)" build/tools/go-licenses check --include_tests $(${LIMEN_LINT_GO_BIN:-limen-lint-go} flags licenses) ./...')
 
 # Unreachable functions, by whole-program call-graph analysis (deeper than the
 # per-package `unused` linter in golangci). -test keeps library-only repos
 # analyzable (test binaries serve as roots) and stops dead code from hiding
 # behind test-only callers. Informational: native only, not in the default set.
-deadcode: (_banner "lint go" "deadcode")
-    deadcode -test ./...
+deadcode: (_banner "lint go" "deadcode") (_go-tool "deadcode" "golang.org/x/tools/cmd/deadcode")
+    build/tools/deadcode -test ./...

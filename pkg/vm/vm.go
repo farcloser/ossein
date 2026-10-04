@@ -17,12 +17,41 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"time"
+
+	"github.com/mycophonic/primordium/bytesize"
+	"golang.org/x/sys/unix"
 
 	"github.com/farcloser/ossein/internal/protocol"
 	"github.com/farcloser/ossein/third_party/vz"
 )
+
+// HostMaxCPUs is every CPU the host has, as far as one guest can use them: the
+// host's logical CPU count, capped at what Virtualization.framework allows.
+// The framework's own maximum is not the host's (64 on an 18-core machine): it
+// is what a guest may be configured with, not what runs without
+// oversubscribing the host.
+func HostMaxCPUs() uint {
+	return min(uint(runtime.NumCPU()), vz.VirtualMachineConfigurationMaximumAllowedCPUCount())
+}
+
+// HostMaxMemory is all of the host's physical memory, capped at what
+// Virtualization.framework allows for one guest, in bytes, and a whole number
+// of MiB. The framework backs guest memory lazily, so a guest sized this way
+// costs what it touches, not what it was given.
+func HostMaxMemory() uint64 {
+	allowed := vz.VirtualMachineConfigurationMaximumAllowedMemorySize()
+
+	physical, err := unix.SysctlUint64("hw.memsize")
+	if err != nil || physical == 0 {
+		physical = allowed
+	}
+
+	// Rounded down: New rounds up to a whole MiB, which must not pass the cap.
+	return min(physical, allowed) / bytesize.MiB * bytesize.MiB
+}
 
 // Disk is an extra virtio-blk attachment (after the initfs at /dev/vda).
 type Disk struct {
@@ -44,10 +73,10 @@ type Share struct {
 
 // Config describes one microVM.
 type Config struct {
-	Kernel    string // uncompressed arm64 Image (kernel-arm64)
-	Initfs    string // initfs.cpio containing vminitd (unpacked in RAM as the initramfs root)
-	CPUs      uint
-	MemoryMiB uint64
+	Kernel string // uncompressed arm64 Image (kernel-arm64)
+	Initfs string // initfs.cpio containing vminitd (unpacked in RAM as the initramfs root)
+	CPUs   uint
+	Memory uint64 // guest RAM, in bytes; New rounds it up to a whole MiB
 
 	ConsoleLog string // file receiving the guest console (hvc0); empty = discard
 	// Network attaches a virtio-net device to Virtualization.framework's own NAT
@@ -160,16 +189,19 @@ func New(cfg Config) (*VM, error) {
 		return nil, fmt.Errorf("bootloader: %w", err)
 	}
 
-	vmc, err := vz.NewVirtualMachineConfiguration(boot, cfg.CPUs, cfg.MemoryMiB*1024*1024)
+	// Virtualization.framework refuses a memory size that is not a whole MiB.
+	memory := (cfg.Memory + bytesize.MiB - 1) / bytesize.MiB * bytesize.MiB
+
+	vmc, err := vz.NewVirtualMachineConfiguration(boot, cfg.CPUs, memory)
 	if err != nil {
 		return nil, fmt.Errorf("vm configuration: %w", err)
 	}
 
-	if err := configureStorage(vmc, cfg); err != nil {
+	if err = configureStorage(vmc, cfg); err != nil {
 		return nil, err
 	}
 
-	if err := configureIO(vmc, cfg); err != nil {
+	if err = configureIO(vmc, cfg); err != nil {
 		return nil, err
 	}
 
@@ -178,11 +210,12 @@ func New(cfg Config) (*VM, error) {
 		return nil, err
 	}
 
-	if err := configureShares(vmc, cfg); err != nil {
+	if err = configureShares(vmc, cfg); err != nil {
 		return nil, err
 	}
 
-	if ok, err := vmc.Validate(); !ok || err != nil {
+	ok, err := vmc.Validate()
+	if !ok || err != nil {
 		return nil, fmt.Errorf("configuration invalid: %w", err)
 	}
 
@@ -451,6 +484,35 @@ func (m *VM) Stop() error {
 
 		time.Sleep(stopPoll)
 	}
+}
+
+// Close stops the VM if it is still running, then releases its network. Every
+// VM that had a NIC owes this before the process exits, throwaway or not: the
+// stop is what detaches the device, and the release is what returns the subnet
+// to the host (see Network.Close). A VM without a NIC has nothing to release
+// and dies with the process, so the stop is skipped for it, as before.
+func (m *VM) Close() error {
+	if m.network == nil {
+		return nil
+	}
+
+	err := m.Stop()
+
+	// A guest that halts on its own while the stop is in flight makes the framework
+	// report "stopped unexpectedly" and leave the machine stopped or errored: either
+	// is the end state Close wants, and the network is released the same way.
+	if err != nil && isFinal(m.vm.State()) {
+		err = nil
+	}
+
+	m.network.Close()
+
+	return err
+}
+
+// isFinal reports a state no stop can change.
+func isFinal(state vz.VirtualMachineState) bool {
+	return state == vz.VirtualMachineStateStopped || state == vz.VirtualMachineStateError
 }
 
 // halfCloser is the shutdown(SHUT_WR) half of a duplex conn.

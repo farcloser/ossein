@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mycophonic/primordium/bytesize"
 	"golang.org/x/sys/unix"
 
 	"github.com/farcloser/ossein/guest/internal/vmexec"
@@ -37,7 +38,7 @@ func TestSniffRootfsBlob(t *testing.T) {
 		return path
 	}
 
-	erofs := make([]byte, rootfsblob.SniffLen+4096)
+	erofs := make([]byte, rootfsblob.SniffLen+4*bytesize.KiB)
 	copy(erofs[rootfsblob.EROFSSuperOffset:], []byte{0xE2, 0xE1, 0xF5, 0xE0})
 
 	for _, testCase := range []struct {
@@ -118,7 +119,7 @@ func mountTmpfs(t *testing.T, opts string) (string, uintptr) {
 
 // plantDeviceInLower creates the overlay dirs under dest and puts a character
 // device in the lower — standing in for one an image shipped.
-func plantDeviceInLower(t *testing.T, dest string) string {
+func plantDeviceInLower(t *testing.T, dest string) {
 	t.Helper()
 
 	if err := makeOverlayDirs(dest); err != nil {
@@ -129,8 +130,6 @@ func plantDeviceInLower(t *testing.T, dest string) string {
 	if err := unix.Mknod(node, unix.S_IFCHR|0o666, int(unix.Mkdev(1, 5))); err != nil {
 		t.Fatalf("mknod: %v", err)
 	}
-
-	return node
 }
 
 // TestStackOverlayHonoursMountFlags is the security regression test for the
@@ -261,17 +260,17 @@ func TestStackOverlayIsWritableOverAReadOnlyLower(t *testing.T) {
 	}
 
 	// A new file lands in the upper, not the read-only lower.
-	if err := os.WriteFile(filepath.Join(dest, "written"), []byte("NEW"), 0o644); err != nil {
+	if err = os.WriteFile(filepath.Join(dest, "written"), []byte("NEW"), 0o644); err != nil {
 		t.Fatalf("write through overlay: %v", err)
 	}
 
-	if _, err := os.Lstat(filepath.Join(window+overlayUpperDir, "written")); err != nil {
+	if _, err = os.Lstat(filepath.Join(window+overlayUpperDir, "written")); err != nil {
 		t.Fatalf("write did not land in the upper: %v", err)
 	}
 
 	// And copy-up works: modifying an image file must not fail against the
 	// read-only lower.
-	if err := os.WriteFile(filepath.Join(dest, "from-image"), []byte("EDITED"), 0o644); err != nil {
+	if err = os.WriteFile(filepath.Join(dest, "from-image"), []byte("EDITED"), 0o644); err != nil {
 		t.Fatalf("copy-up of an image file failed: %v", err)
 	}
 
@@ -283,7 +282,7 @@ func TestStackOverlayIsWritableOverAReadOnlyLower(t *testing.T) {
 	// The lower saw none of it: the new file is absent and the image file
 	// still carries its original bytes — the immutability half of the pinned
 	// property.
-	if _, err := os.Lstat(filepath.Join(window+overlayLowerDir, "written")); !errors.Is(err, os.ErrNotExist) {
+	if _, err = os.Lstat(filepath.Join(window+overlayLowerDir, "written")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("lower has the new file (lstat err %v); writes are reaching the image layer", err)
 	}
 

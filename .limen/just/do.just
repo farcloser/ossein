@@ -7,10 +7,6 @@ set working-directory := '../..'
 # Silence just's per-line command echo; recipes announce themselves via _banner.
 set quiet
 
-# The `do` namespace holds every shared task, so the top level stays free for
-# a project's own recipes (a project may define its own `just lint`; the
-# shared one is `just do lint`).
-
 # Show the shared tasks.
 default:
     @just --list do
@@ -20,6 +16,12 @@ mod tools 'tools.just'
 mod lint 'lint.just'
 mod test 'test.just'
 mod fix 'fix.just'
+# Scans against a moving database, apart from lint's verdicts on the tree
+# (security.just).
+mod security 'security.just'
+# Reports that judge nothing, apart from lint's and test's verdicts
+# (perf.just).
+mod perf 'perf.just'
 
 # Flat (imported, not a module) so it takes arguments: `just do release v1.2.3`.
 import 'release.just'

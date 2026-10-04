@@ -70,6 +70,7 @@ func (w *logForwarder) emit(line []byte) {
 	var record map[string]any
 	if err := json.Unmarshal(line, &record); err != nil {
 		// Not JSON — a pre-logrus startup line or a panic trace. Keep it.
+		//nolint:sloglint // static-msg: the line is the guest's own message.
 		w.logger.Info(string(line), "source", w.source, "raw", true)
 
 		return
@@ -100,6 +101,7 @@ func (w *logForwarder) emit(line []byte) {
 		}
 	}
 
+	//nolint:sloglint // static-msg: msg is the guest record's own.
 	w.logger.LogAttrs(context.Background(), level, msg, attrs...)
 }
 

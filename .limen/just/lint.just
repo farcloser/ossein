@@ -17,45 +17,28 @@ default: limen just aqua links yaml shell dockerfile commits
 mod go 'lint-go.just'
 mod rust 'lint-rust.just'
 
-# Homebrew formula linting (`just do lint homebrew`): brew's own vendored
-# tooling, resolved by absolute path — the machine-layer exception documented
-# in the module itself. Explicit like the language modules, not in the
-# default set.
+# Explicit, never in the default set: brew is macOS-only and machine-layer
+# (lint-homebrew.just).
 mod homebrew 'lint-homebrew.just'
 
-# limen itself: verify the repository against the Farcloser engineering rules
-# (mandatory files, canonical baseline, license, aqua pins). First in the
-# default set: the other linters trust the canonical files this one verifies.
-# LIMEN_BIN exists for one consumer — the limen repository itself, whose
-# root Justfile points it at `go run ./cmd/limen` so the working tree is judged
-# by its own enforcer, not by the (always older) released pin. Everyone else
-# runs the aqua-pinned binary.
+# First in the default set: the other linters trust the canonical files this
+# one verifies. LIMEN_BIN is for the limen repository itself (`go run
+# ./cmd/limen`, so the tree is judged by its own enforcer).
 limen: (_banner "lint" "limen")
     ${LIMEN_BIN:-limen} check .
 
-# GitHub settings audit — `limen github check` against this repository
-# (inferred from origin), or any target the subcommand takes
-# (`just do lint github -org farcloser`). Named, never in the default set: it
-# needs the network and an authed gh, and its subject is the live GitHub
-# state, not the tree. Same LIMEN_BIN override as `lint limen`.
+# Named, never in the default set: needs the network and an authed gh, and
+# judges live GitHub state, not the tree.
 github *args: (_banner "lint" "github")
     ${LIMEN_BIN:-limen} github check {{ args }}
 
 just: (_banner "lint" "just")
     #!/usr/bin/env bash
     set -euo pipefail
-    # --cached --others --exclude-standard: tracked *and* new untracked files,
-    # still honoring .gitignore — so a not-yet-staged file is linted too. The
-    # index half of that union also lists files deleted from the worktree but
-    # not yet staged (a mid-migration tree, e.g. a renamed canonical module),
-    # so every path is existence-checked before it reaches a tool: enumeration
-    # is git's (ignore semantics), truth is the working tree's. Deleted files
-    # are vacuously well-formatted; guarding required files is `limen check`'s
-    # job, not a formatter's.
-    # Literal names need their '**/' twins — git pathspec literals do not
-    # match across directories (only wildcard patterns like '*.just' do) and
-    # are case-sensitive. All three spellings just honors are covered:
-    # justfile, Justfile, and the hidden .justfile.
+    # --cached --others --exclude-standard: tracked and untracked-but-not-ignored
+    # files. The index half also lists files deleted but unstaged, hence the
+    # existence check. Literal names need their '**/' twins: git pathspec
+    # literals do not match across directories.
     while IFS= read -r -d '' f; do
         [ -f "$f" ] || continue
         just --fmt --check --justfile "$f"
@@ -67,16 +50,16 @@ just: (_banner "lint" "just")
 # none, so it can sit in the default set for every repo. Rule exceptions
 # belong next to the instruction they excuse, as inline
 # `# hadolint ignore=DLxxxx` pragmas — not in the recipe.
-dockerfile: (_banner "lint" "dockerfile")
+dockerfile: (_banner "lint" "dockerfile") (_go-tool "godolint" "github.com/farcloser/godolint/cmd/godolint")
     #!/usr/bin/env bash
     set -euo pipefail
-    # --cached --others --exclude-standard: tracked *and* new untracked files,
-    # still honoring .gitignore — so a not-yet-staged Dockerfile is linted too
-    # (same as `lint just`). The patterns cover the naming conventions — the
-    # bare name and the <name>.<variant> / <variant>.<name> forms, at any
-    # depth — for both Dockerfile and its OCI-neutral synonym Containerfile
-    # (podman/buildah). '*.Dockerfile' needs no '**/' twin — a wildcard pattern
-    # already matches across directories; a literal like 'Dockerfile' does not.
+    # Twice on windows-11-arm this body exited 4 within a second of starting,
+    # before any tool ran, with no output; the trap makes the next one say
+    # which line, since a silent exit cannot be diagnosed from a log.
+    trap 'echo "lint dockerfile: line $LINENO exited $?" >&2' ERR
+    # Same enumeration as `lint just`, over both Dockerfile and Containerfile
+    # spellings. '*.Dockerfile' needs no '**/' twin: a wildcard already matches
+    # across directories.
     files=()
     while IFS= read -r -d '' f; do
         # Tracked-but-deleted files are skipped (see `lint just`).
@@ -85,10 +68,9 @@ dockerfile: (_banner "lint" "dockerfile")
     done < <(git ls-files -z --cached --others --exclude-standard \
         'Dockerfile' '**/Dockerfile' 'Dockerfile.*' '**/Dockerfile.*' '*.Dockerfile' \
         'Containerfile' '**/Containerfile' 'Containerfile.*' '**/Containerfile.*' '*.Containerfile')
-    # godolint validates RUN instructions through shellcheck when it finds it
-    # on PATH — the hermetic PATH (see the root Justfile) always provides the
-    # pinned one.
-    [ ${#files[@]} -eq 0 ] || godolint "${files[@]}"
+    # godolint runs shellcheck on RUN lines when it finds one on PATH — the
+    # pinned one, here.
+    [ ${#files[@]} -eq 0 ] || build/tools/godolint "${files[@]}"
 
 yaml: (_banner "lint" "yaml")
     yamlfmt -conf .limen/.yamlfmt -lint
@@ -101,54 +83,79 @@ shell: (_banner "lint" "shell")
     #   - a shebang on line 1 for a dialect shellcheck lints (sh/bash/dash/ksh —
     #     not zsh, which shellcheck cannot check) → covers extension-less scripts.
     # Filtering on the shebang alone would silently skip an *.sh that forgot its shebang.
-    # No mapfile (bash 4+): build the array with a read loop, portable to bash 3.2.
+    # No mapfile (bash 4+): build the arrays with read loops, portable to bash 3.2.
+    # Process count is the cost that matters: under git-bash a process is tens
+    # of milliseconds, and a head and a grep per file made this recipe six
+    # times slower on windows than on linux. The loop below is builtins only,
+    # and one awk per hundred candidates (windows caps a command line at 32K)
+    # reads their first lines. No \b in awk regexes — the word boundary is
+    # spelled out.
     files=()
+    candidates=()
     while IFS= read -r -d '' f; do
         # Tracked-but-deleted files are skipped (see `lint just`).
         [ -f "$f" ] || continue
         case "$f" in
             *.sh|*.bash) files+=("$f"); continue ;;
         esac
-        head -n 1 "$f" 2>/dev/null | grep -qE '^#!.*\b(bash|dash|ksh|sh)\b' && files+=("$f")
+        candidates+=("$f")
     done < <(git ls-files -z --cached --others --exclude-standard)
+    while IFS= read -r -d '' f; do files+=("$f"); done < <(
+        for ((i = 0; i < ${#candidates[@]}; i += 100)); do
+            awk '
+                FNR == 1 {
+                    # %c with 0, not "\0" in the format: a NUL inside an awk
+                    # string ends it, and the names would run together unterminated.
+                    if ($0 ~ /^#!.*[^[:alnum:]_](bash|dash|ksh|sh)([^[:alnum:]_]|$)/) printf "%s%c", FILENAME, 0
+                    nextfile
+                }' "${candidates[@]:i:100}"
+        done
+    )
     [ ${#files[@]} -eq 0 ] || shellcheck --rcfile .limen/.shellcheckrc "${files[@]}"
-    # Shebang recipes inside justfiles are shell scripts too — extract each
-    # body from `just --dump --dump-format json` and shellcheck it standalone.
-    # In the dump a body line is a fragment list: text fragments are strings,
-    # interpolations (double-brace expressions — just syntax, not shell) are
-    # arrays, masked as INTERP. One dump of the root justfile covers the whole
-    # tree: imports (the root Justfile) are flattened into .recipes — they cannot be
-    # parsed standalone, their dependencies may name root-level module paths —
-    # and every `mod` nests recursively under .modules. mktemp gets an explicit
-    # template because macOS mktemp ignores $TMPDIR.
+    # Shebang recipes inside justfiles are shell scripts too: extract each body
+    # from the JSON dump and shellcheck it. Interpolations (just syntax, not
+    # shell) are masked as INTERP. One dump of the root justfile covers imports
+    # and every nested `mod`. mktemp gets an explicit template: macOS ignores
+    # $TMPDIR.
     tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/lint-shell.XXXXXX")
     trap 'rm -rf "$tmpdir"' EXIT
     recipes=()
     dump=$(just --dump --dump-format json)
-    # Bodies are multi-line: base64 carries each across the one-record-per-line
-    # pipe intact (quotes, tabs and all). The trailing tr matters: the native
-    # windows jq writes CRLF, and the stray \r lands in the last TSV field,
-    # corrupting the base64 ("base64: invalid input"). \r cannot legitimately
-    # appear in this stream (recipe names and base64), so a blanket strip is safe.
-    while IFS=$'\t' read -r name body; do
-        # ':' is illegal in windows filenames — the msys layer creates
-        # "do::lint" via a private-use encoding that native shellcheck then
-        # cannot open (openBinaryFile: invalid argument). The name is only a
-        # label; flatten module separators.
-        out="$tmpdir/${name//:/_}"
-        printf '%s' "$body" | base64 -d > "$out"
-        head -n 1 "$out" | grep -qE '^#!.*\b(bash|dash|ksh|sh)\b' || continue
-        recipes+=("$out")
-    done < <(printf '%s' "$dump" | jq -r '
-        def recipes_of(prefix):
-            ((.recipes // {}) | to_entries[]
-                | [prefix + .key,
-                   (.value.body
-                    | map(map(if type == "string" then . else "INTERP" end) | join(""))
-                    | join("\n") | @base64)]),
-            ((.modules // {}) | to_entries[]
-                | .key as $mod | .value | recipes_of(prefix + $mod + "::"));
-        recipes_of("") | @tsv' | tr -d '\r')
+    # jq keeps the shebang recipes and emits each as a record — name, body,
+    # then a \x1e separator, a byte no source carries — and ONE awk writes the
+    # bodies out, rather than a base64 and a head per recipe. The separator
+    # is built with implode, never spelled as a byte or an escape in this text: the recipe
+    # is itself in the dump, and a JSON escape in its text decodes to the
+    # byte and splits its own record. The tr is load-bearing: native windows
+    # jq writes CRLF. Every record after the first starts with the newline jq
+    # prints after the separator. ':' is illegal in windows filenames; the
+    # name is only a label, so module separators are flattened. The directory
+    # reaches awk through ENVIRON, never -v: -v processes escapes, and a
+    # windows temp path's backslashes are eaten (\l becomes l).
+    while IFS= read -r name; do recipes+=("$tmpdir/$name"); done < <(
+        printf '%s' "$dump" | jq -r '
+            def recipes_of(prefix):
+                ((.recipes // {}) | to_entries[]
+                    | (.value.body
+                       | map(map(if type == "string" then . else "INTERP" end) | join(""))) as $lines
+                    | select(($lines[0] // "") | test("^#!.*\\b(bash|dash|ksh|sh)\\b"))
+                    | prefix + .key, ($lines | join("\n")), ([30] | implode)),
+                ((.modules // {}) | to_entries[]
+                    | .key as $mod | .value | recipes_of(prefix + $mod + "::"));
+            recipes_of("")' | tr -d '\r' | LINT_SHELL_DIR="$tmpdir" awk '
+            BEGIN { RS = "\036" }
+            {
+                sub(/^\n/, "")
+                n = index($0, "\n")
+                if (n == 0) next
+                name = substr($0, 1, n - 1)
+                gsub(/:/, "_", name)
+                out = ENVIRON["LINT_SHELL_DIR"] "/" name
+                printf "%s", substr($0, n + 1) > out
+                close(out)
+                print name
+            }'
+    )
     # SC1010 is excluded for recipe bodies only: `just do <task>` is our shared
     # namespace, and shellcheck misreads the argument "do" as the shell keyword.
     # The constant-word checks (SC2050/SC2078/SC2157/SC2194) are excluded for
@@ -160,31 +167,54 @@ shell: (_banner "lint" "shell")
 links: (_banner "lint" "links")
     #!/usr/bin/env bash
     set -euo pipefail
-    # A directory input (not a glob) is what makes lychee honor .gitignore/hidden.
     # Canonical exclusions (and their rationale) live in .limen/lychee.toml; a
-    # repository adds its own in a root .lychee.toml. Both must be passed
+    # repository adds its own in a root .lint-links.toml. Both must be passed
     # explicitly — any --config disables lychee's ./lychee.toml auto-discovery —
     # and lychee merges them, concatenating the exclude lists.
     args=(--config .limen/lychee.toml)
-    if [ -f .lychee.toml ]; then
-        args+=(--config .lychee.toml)
+    if [ -f .lint-links.toml ]; then
+        args+=(--config .lint-links.toml)
     fi
-    lychee --no-progress "${args[@]}" .
+    # WORKAROUND, lychee through 0.24.2 (lychee-lib/src/retry.rs): a rejected
+    # status is judged retryable only when it is 429, so a 5xx is never
+    # retried whatever max_retries says, and one GitHub 503 blip fails the
+    # lane. Server errors alone get a second pass, re-checked once a minute
+    # later; any other failure is a finding at once. Drop this when lychee
+    # retries 5xx itself.
+    scratch=$(mktemp -d "${TMPDIR:-/tmp}/lint-links.XXXXXX")
+    trap 'rm -rf "$scratch"' EXIT
+    report="$scratch/report.json"
+    status=0
+    lychee --no-progress "${args[@]}" --format json --output "$report" . || status=$?
+    if [ "$status" = 0 ]; then
+        jq -r '"\(.total) links: \(.successful) ok, \(.excludes) excluded, \(.redirects) redirected"' "$report"
+        exit 0
+    fi
+    # 2 is "links failed"; anything else (a config or input error) is final.
+    [ "$status" = 2 ] || exit "$status"
+    jq -r '(.error_map, .timeout_map) | to_entries[] | .key as $file | .value[]
+        | "[\(.status.code // "timeout")] \(.url) (\($file):\(.span.line // 0)) | \(.status.text)"' "$report"
+    servers=$(jq '[.error_map[][] | select(.status.code != null and .status.code >= 500 and .status.code < 600)] | length' "$report")
+    failures=$(jq '[.error_map[][], .timeout_map[][]] | length' "$report")
+    if [ "$servers" = 0 ] || [ "$servers" != "$failures" ]; then
+        exit 2
+    fi
+    # The links go back in as a document: a URL given as an input is a page to
+    # read links out of, not a link to check.
+    jq -r '[.error_map[][] | .url] | unique[] | "<\(.)>"' "$report" > "$scratch/recheck.md"
+    echo "only server errors, which lychee does not retry: re-checking $(wc -l < "$scratch/recheck.md" | tr -d ' ') link(s) once, in 60s" >&2
+    sleep 60
+    lychee --no-progress "${args[@]}" "$scratch/recheck.md"
 
 # Validate commit hygiene — DCO sign-off, subject length, dangling whitespace —
 # over a commit range (default: everything ahead of the upstream default branch;
 # pass one explicitly otherwise, e.g. `just do lint commits v1.0.0..HEAD`).
-commits range="": (_banner "lint" "commits")
+commits range="": (_banner "lint" "commits") (_go-tool "git-validation" "github.com/vbatts/git-validation")
     #!/usr/bin/env bash
     set -euo pipefail
-    # Contributors' SSH keys, when the repo ships them, arm signature display
-    # for humans (git log --show-signature, git tag -v). None of the rules run
-    # below verify signatures — this is convenience wiring, not enforcement.
-    # See https://github.com/andyfeller/gh-ssh-allowed-signers for automation
-    # to retrieve contributor keys.
-    # Best-effort: sandboxed agent sessions (e.g. Claude Code) write-protect
-    # .git/config as an escape-vector guard, and losing the display wiring must
-    # not fail the lint the rules below actually enforce.
+    # .allowed_signers arms signature DISPLAY for humans; none of the rules
+    # below verify signatures. Best-effort: a sandboxed session may
+    # write-protect .git/config, and that must not fail the lint.
     if [ -f .allowed_signers ]; then
         git config --unset-all gpg.ssh.allowedSignersFile 2>/dev/null || true
         git config --add gpg.ssh.allowedSignersFile .allowed_signers 2>/dev/null ||
@@ -213,9 +243,9 @@ commits range="": (_banner "lint" "commits")
         done
     fi
     if [ -n "$range" ]; then
-        git-validation -run DCO,short-subject,dangling-whitespace -range "$range"
+        build/tools/git-validation -run DCO,short-subject,dangling-whitespace -range "$range"
     else
-        git-validation -run DCO,short-subject,dangling-whitespace
+        build/tools/git-validation -run DCO,short-subject,dangling-whitespace
     fi
 
 # Verify aqua-checksums.json is in sync with aqua.yaml — the working tree's

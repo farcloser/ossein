@@ -18,11 +18,13 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/mycophonic/primordium/bytesize"
 	"github.com/mycophonic/primordium/filesystem/dirs"
 	blobcache "github.com/mycophonic/primordium/store/cache"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -71,9 +73,13 @@ const (
 	fsTypeExt4      = "ext4" // persistent cache disk filesystem
 	fsTypeTmpfs     = "tmpfs"
 
-	// defaultCPUs/defaultMemoryMiB apply when the spec leaves them zero.
-	defaultCPUs      uint   = 2
-	defaultMemoryMiB uint64 = 2048
+	// defaultCPUs/defaultMemory apply when the spec leaves them zero.
+	defaultCPUs   uint   = 2
+	defaultMemory uint64 = 2 * bytesize.GiB
+
+	// doctorMemory sizes Doctor's bare VM: no image, no rootfs, only vminitd
+	// and one tmpfs mount to exercise.
+	doctorMemory uint64 = 512 * bytesize.MiB
 
 	// guestIface is the guest's single NIC; the guest agent DHCPs on it.
 	guestIface = "eth0"
@@ -89,11 +95,11 @@ const (
 	logKeyInstance = "instance"
 	logKeyErr      = "err"
 
-	// rootfsReserveMiB is RAM held back from the tmpfs rootfs for the kernel and
+	// rootfsReserve is RAM held back from the tmpfs rootfs for the kernel and
 	// container processes. tmpfs pages ARE guest RAM and the guest has no swap,
 	// so the rootfs is sized to (memory - reserve): at the 4 GiB run default this
 	// yields a 3 GiB rootfs, and it scales 1:1 with --memory above the reserve.
-	rootfsReserveMiB uint64 = 1024
+	rootfsReserve uint64 = bytesize.GiB
 
 	// closeFlushTimeout bounds Close's cache-disk flush (Sync + Umounts).
 	// 60s mirrors `ossein stop`'s default --grace for the same shutdown.
@@ -107,8 +113,8 @@ const (
 // 76 MiB rootfs while --memory 1024 got 512 MiB: more memory, less rootfs.
 func rootfsSizeFromMemory(mem uint64) uint64 {
 	half := mem / 2
-	if mem > rootfsReserveMiB && mem-rootfsReserveMiB > half {
-		return mem - rootfsReserveMiB
+	if mem > rootfsReserve && mem-rootfsReserve > half {
+		return mem - rootfsReserve
 	}
 
 	return half
@@ -154,7 +160,7 @@ type RunSpec struct {
 	Privileged bool
 	Network    bool
 	CPUs       uint
-	MemoryMiB  uint64
+	Memory     uint64      // guest RAM, in bytes; zero = the default
 	Mounts     []Mount     // host dir → guest path (virtio-fs)
 	Disks      []DiskMount // host ext4 image → guest mountpoint (virtio-blk, persistent)
 	ConsoleLog string      // guest console log path; empty = temp file
@@ -238,12 +244,14 @@ func guestRootfs(instanceID string) string { return "/run/container/" + instance
 // Deliberately NOT nosuid: images legitimately ship setuid binaries (su, ping)
 // and docker does not strip them. The container's own /dev is a separate tmpfs
 // (see pkg/ocispec) and must stay dev-capable for /dev/null and friends.
-func rootfsMountOpts(sizeMiB uint64) []string {
-	return []string{"mode=0755", "nodev", fmt.Sprintf("size=%dm", sizeMiB)}
+func rootfsMountOpts(size uint64) []string {
+	return []string{"mode=0755", "nodev", fmt.Sprintf("size=%dm", size/bytesize.MiB)}
 }
 
 // Boot pulls the image, boots the VM, materializes the rootfs, and configures
 // guest networking — everything up to (not including) process creation.
+//
+//nolint:gocognit // one linear boot sequence, each stage timed and failing into the same teardown.
 func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (*Instance, *image.Image, error) {
 	instanceID := spec.InstanceID
 	if instanceID == "" {
@@ -301,7 +309,8 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 		pull = image.PullMissing
 	}
 
-	logger.Info("resolving image", "image", spec.Image, "platform", canonPlatform, "rosetta", rosetta, "pull", pull)
+	logger.InfoContext(ctx, "resolving image",
+		"image", spec.Image, "platform", canonPlatform, "rosetta", rosetta, "pull", pull)
 
 	img, err := image.Resolve(ctx, cache, spec.Image, canonPlatform, pull)
 	if err != nil {
@@ -309,7 +318,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, stageAt := lap()
-	logger.Info("image resolved",
+	logger.InfoContext(ctx, "image resolved",
 		slog.String("digest", img.Digest), slog.String("platform", canonPlatform), stageDur, stageAt)
 
 	// The flattened rootfs blob must exist as a complete file BEFORE the VM
@@ -325,16 +334,22 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, stageAt = lap()
-	logger.Info("rootfs blob pinned", slog.Int64("sizeMiB", rootfsBlob.Size>>20), stageDur, stageAt)
+	logger.InfoContext(
+		ctx,
+		"rootfs blob pinned",
+		slog.Int64("size_mib", rootfsBlob.Size/bytesize.MiB),
+		stageDur,
+		stageAt,
+	)
 
 	cpus := spec.CPUs
 	if cpus == 0 {
 		cpus = defaultCPUs
 	}
 
-	mem := spec.MemoryMiB
+	mem := spec.Memory
 	if mem == 0 {
-		mem = defaultMemoryMiB
+		mem = defaultMemory
 	}
 
 	consoleLog := spec.ConsoleLog
@@ -342,7 +357,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 		consoleLog = filepath.Join(dir, "console.log")
 	}
 
-	rootfsSizeMiB := rootfsSizeFromMemory(mem)
+	rootfsSize := rootfsSizeFromMemory(mem)
 
 	// The whole materialization plan rides the kernel cmdline: vminitd mounts
 	// the tmpfs and extracts the blob AT INIT, overlapping the agent
@@ -350,7 +365,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	// RPCs, and copyInRootfs merely awaits the result.
 	rootfsPath := guestRootfs(instanceID)
 	rootfsPlan := fmt.Sprintf("%s%s:%s:%s", rootfsPlanParam, rootfsBlobSerial, rootfsPath,
-		strings.Join(rootfsMountOpts(rootfsSizeMiB), ","))
+		strings.Join(rootfsMountOpts(rootfsSize), ","))
 
 	// Networking is Virtualization.framework's own NAT now: no host-side stack
 	// to start, own or tear down — the VM either has a NIC on Apple's subnet or
@@ -363,11 +378,11 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, stageAt = lap()
-	logger.Info("microVM created",
-		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memoryMiB", mem),
+	logger.InfoContext(ctx, "microVM created",
+		slog.Uint64("cpus", uint64(cpus)), slog.Uint64("memory_mib", mem/bytesize.MiB),
 		slog.String("console", consoleLog), stageDur, stageAt)
 
-	if err := machine.Start(); err != nil {
+	if err = machine.Start(); err != nil {
 		return nil, nil, fmt.Errorf(consoleErrFmt, err, consoleLog)
 	}
 
@@ -386,7 +401,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	// Control channel. ConnectRetry honors the dial ctx, so cancelling Boot
 	// interrupts the retry loop; guest.Dial's handshake timeout is the overall
 	// patience bound.
-	logger.Debug("dialing guest agent", "vsockPort", protocol.VsockPort)
+	logger.DebugContext(ctx, "dialing guest agent", "vsock_port", protocol.VsockPort)
 
 	agent, err := guest.Dial(ctx, func(dialCtx context.Context) (net.Conn, error) {
 		return machine.ConnectRetry(dialCtx, protocol.VsockPort, 20*time.Second)
@@ -398,7 +413,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	inst.agent = agent
 
 	stageDur, stageAt = lap()
-	logger.Info("guest agent up", stageDur, stageAt)
+	logger.InfoContext(ctx, "guest agent up", stageDur, stageAt)
 
 	if err := inst.copyInRootfs(ctx); err != nil {
 		return fail(err)
@@ -409,7 +424,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, stageAt = lap()
-	logger.Info("rootfs extracted", stageDur, stageAt)
+	logger.InfoContext(ctx, "rootfs extracted", stageDur, stageAt)
 
 	if err := inst.configureLoopback(ctx); err != nil {
 		return fail(err)
@@ -422,7 +437,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 		}
 
 		stageDur, stageAt = lap()
-		logger.Info("guest network up", slog.String("cidr", netCfg.CIDR),
+		logger.InfoContext(ctx, "guest network up", slog.String("cidr", netCfg.CIDR),
 			slog.String("gateway", netCfg.Gateway), slog.Any("dns", netCfg.Nameservers),
 			stageDur, stageAt)
 	}
@@ -434,7 +449,7 @@ func Boot(ctx context.Context, art Artifacts, cache image.Cache, spec RunSpec) (
 	}
 
 	stageDur, _ = lap()
-	logger.Info("boot complete", stageDur, slog.Duration("total", time.Since(bootStart)))
+	logger.InfoContext(ctx, "boot complete", stageDur, slog.Duration("total", time.Since(bootStart)))
 
 	return inst, img, nil
 }
@@ -468,7 +483,7 @@ func vmConfig(
 		Kernel:          art.Kernel,
 		Initfs:          art.Initfs,
 		CPUs:            cpus,
-		MemoryMiB:       mem,
+		Memory:          mem,
 		ConsoleLog:      consoleLog,
 		Network:         spec.Network,
 		Shares:          shares,
@@ -514,14 +529,14 @@ func Doctor(ctx context.Context, art Artifacts, consoleLog string) error {
 		Kernel:     art.Kernel,
 		Initfs:     art.Initfs,
 		CPUs:       1,
-		MemoryMiB:  512,
+		Memory:     doctorMemory,
 		ConsoleLog: consoleLog,
 	})
 	if err != nil {
 		return err
 	}
 
-	if err := machine.Start(); err != nil {
+	if err = machine.Start(); err != nil {
 		return fmt.Errorf(consoleErrFmt, err, consoleLog)
 	}
 	defer func() { _ = machine.Stop() }()
@@ -547,10 +562,12 @@ func Doctor(ctx context.Context, art Artifacts, consoleLog string) error {
 
 // StartProcess creates + starts the container init process using the spec and
 // image captured at Boot, wiring stdio through host-side vsock relays.
+//
+//nolint:gocognit // one stdio listener per wired stream, each closing the earlier ones on error.
 func (i *Instance) StartProcess(ctx context.Context) error {
 	startTime := time.Now()
 	defer func() {
-		slog.Default().Info("process started", slog.String(logKeyInstance, i.ID),
+		slog.Default().InfoContext(ctx, "process started", slog.String(logKeyInstance, i.ID),
 			slog.Duration("dur", time.Since(startTime)))
 	}()
 
@@ -710,32 +727,11 @@ func (i *Instance) ExposeUnix(ctx context.Context, containerPath, hostPath strin
 		_ = i.agent.StopVsockProxy(stopCtx, proxyID)
 	}
 
-	// Clear a stale socket file, but never hijack a live one: if something
-	// still answers on it, the caller pointed two instances at one path. Only
-	// two outcomes mean "free": no file (ENOENT) or a file nothing listens on
-	// (ECONNREFUSED). Anything else — a cancelled ctx, EACCES, ENFILE — is NOT
-	// evidence the socket is dead, and removing it on such an error would
-	// unlink another live instance's endpoint out from under its clients.
-	probe := net.Dialer{Timeout: time.Second}
-
-	conn, err := probe.DialContext(ctx, "unix", hostPath)
-
-	switch {
-	case err == nil:
-		_ = conn.Close()
-
+	if err := claimHostSocket(ctx, hostPath); err != nil {
 		stopProxy()
 
-		return nil, fmt.Errorf("%w: %s", ErrSocketInUse, hostPath)
-	case errors.Is(err, fs.ErrNotExist), errors.Is(err, unix.ECONNREFUSED):
-		// Free: nothing there, or a stale file left by a dead process.
-	default:
-		stopProxy()
-
-		return nil, fmt.Errorf("probing host socket %s: %w", hostPath, err)
+		return nil, err
 	}
-
-	_ = os.Remove(hostPath)
 
 	var listenCfg net.ListenConfig
 
@@ -746,27 +742,7 @@ func (i *Instance) ExposeUnix(ctx context.Context, containerPath, hostPath strin
 		return nil, fmt.Errorf("host socket %s: %w", hostPath, err)
 	}
 
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return // listener closed by the closer below
-			}
-
-			go func() {
-				defer func() { _ = conn.Close() }()
-
-				gconn, err := i.vm.Connect(port)
-				if err != nil {
-					return
-				}
-
-				defer func() { _ = gconn.Close() }()
-
-				bidiPipe(conn, gconn)
-			}()
-		}
-	}()
+	go i.serveProxy(listener, port)
 
 	// The closer outlives the ExposeUnix ctx by design (teardown must run
 	// even after the caller's ctx died), hence its own short deadline.
@@ -778,49 +754,41 @@ func (i *Instance) ExposeUnix(ctx context.Context, containerPath, hostPath strin
 	}, nil
 }
 
+// claimHostSocket clears a stale socket file at hostPath, but never hijacks a
+// live one: if something still answers on it, the caller pointed two
+// instances at one path. Only two outcomes mean "free": no file (ENOENT) or a
+// file nothing listens on (ECONNREFUSED). Anything else — a cancelled ctx,
+// EACCES, ENFILE — is NOT evidence the socket is dead, and removing it on
+// such an error would unlink another live instance's endpoint out from under
+// its clients.
+func claimHostSocket(ctx context.Context, hostPath string) error {
+	probe := net.Dialer{Timeout: time.Second}
+
+	conn, err := probe.DialContext(ctx, "unix", hostPath)
+
+	switch {
+	case err == nil:
+		_ = conn.Close()
+
+		return fmt.Errorf("%w: %s", ErrSocketInUse, hostPath)
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, unix.ECONNREFUSED):
+		// Free: nothing there, or a stale file left by a dead process.
+		_ = os.Remove(hostPath)
+
+		return nil
+	default:
+		return fmt.Errorf("probing host socket %s: %w", hostPath, err)
+	}
+}
+
 // Close tears everything down: VM first (kills all guest state), then the
 // host-side network stack.
 func (i *Instance) Close(ctx context.Context) {
 	var flushDur, agentDur, vmDur time.Duration
 
 	if i.agent != nil {
-		// Persist cache disks before the VM dies: sync flushes the guest page
-		// cache to the virtio-blk devices, then unmounting each detaches ext4
-		// cleanly so vm.Stop's flush carries the writes through to the host image.
-		// Without this, buildkit's cache writes are lost with the tmpfs VM. These
-		// are the ONLY barrier protecting durable data, so failures are loud.
 		if len(i.mountedDisks) > 0 {
-			// Bounded: every caller passes context.Background(), and an
-			// unbounded flush turns a wedged guest (D-state sync(2) on
-			// virtio-blk) into a hang nothing but an external SIGKILL ends —
-			// a library caller just hangs. Generous rather than snappy,
-			// matching `ossein stop`'s default grace: this is the only
-			// barrier protecting durable data, and a real flush of a
-			// gigabyte-dirty cache is allowed to be slow.
-			flushCtx, cancelFlush := context.WithTimeout(ctx, closeFlushTimeout)
-			defer cancelFlush()
-
-			flushStart := time.Now()
-
-			if err := i.agent.Sync(flushCtx); err != nil {
-				slog.Default().Warn("guest sync failed; cache disk writes may be lost",
-					logKeyInstance, i.ID, logKeyErr, err)
-			}
-
-			for _, mnt := range i.mountedDisks {
-				err := i.agent.Umount(flushCtx, mnt)
-				if err != nil {
-					// One retry: buildkitd may still be releasing the mount.
-					err = i.agent.Umount(flushCtx, mnt)
-				}
-
-				if err != nil {
-					slog.Default().Warn("cache disk unmount failed; image may be torn mid-write",
-						logKeyInstance, i.ID, "mount", mnt, logKeyErr, err)
-				}
-			}
-
-			flushDur = time.Since(flushStart)
+			flushDur = i.flushDisks(ctx)
 		}
 
 		agentStart := time.Now()
@@ -828,16 +796,17 @@ func (i *Instance) Close(ctx context.Context) {
 		agentDur = time.Since(agentStart)
 	}
 
-	// Stopping through the framework costs ~50ms. It is only owed when
-	// durable state was attached (cache disks, whose flush above must land
-	// before the device detaches); a throwaway VM holds nothing that
-	// outlives it and dies with this process anyway (VZ VMs are in-process),
-	// so the polite stop is skipped and vm_stop=0 marks it in the log.
-	if i.vm != nil && len(i.mountedDisks) > 0 {
+	// Stopping through the framework costs ~50ms and is owed by every VM
+	// that had a NIC, throwaway or not: the stop detaches the device and the
+	// close behind it releases the vmnet subnet reservation, which otherwise
+	// outlives this process host-wide (VM.Close). The cache-disk flush above
+	// must land before the device detaches. A VM without a NIC skips the
+	// stop and vm_stop=0 marks it in the log.
+	if i.vm != nil {
 		vmStart := time.Now()
 
-		if err := i.vm.Stop(); err != nil {
-			slog.Default().Warn("vm stop", logKeyInstance, i.ID, logKeyErr, err)
+		if err := i.vm.Close(); err != nil {
+			slog.Default().WarnContext(ctx, "vm close", logKeyInstance, i.ID, logKeyErr, err)
 		}
 
 		vmDur = time.Since(vmStart)
@@ -847,16 +816,80 @@ func (i *Instance) Close(ctx context.Context) {
 	// pin on the cache entry.
 	if i.rootfsPin != nil {
 		if err := i.rootfsPin.Release(); err != nil {
-			slog.Default().Warn("rootfs blob unpin", logKeyInstance, i.ID, logKeyErr, err)
+			slog.Default().WarnContext(ctx, "rootfs blob unpin", logKeyInstance, i.ID, logKeyErr, err)
 		}
 
 		i.rootfsPin = nil
 	}
 
-	slog.Default().Info("teardown complete", slog.String(logKeyInstance, i.ID),
+	slog.Default().InfoContext(ctx, "teardown complete", slog.String(logKeyInstance, i.ID),
 		slog.Duration("dur", flushDur+agentDur+vmDur),
 		slog.Duration("cache_flush", flushDur), slog.Duration("agent_close", agentDur),
 		slog.Duration("vm_stop", vmDur))
+}
+
+// serveProxy accepts on the host listener until ExposeUnix's closer closes
+// it, piping each connection to the guest's vsock port for the proxy.
+func (i *Instance) serveProxy(listener net.Listener, port uint32) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+
+		go func() {
+			defer func() { _ = conn.Close() }()
+
+			gconn, err := i.vm.Connect(port)
+			if err != nil {
+				return
+			}
+
+			defer func() { _ = gconn.Close() }()
+
+			bidiPipe(conn, gconn)
+		}()
+	}
+}
+
+// flushDisks persists the cache disks before the VM dies: sync flushes the
+// guest page cache to the virtio-blk devices, then unmounting each detaches
+// ext4 cleanly so vm.Stop's flush carries the writes through to the host
+// image. Without this, buildkit's cache writes are lost with the tmpfs VM.
+// These are the ONLY barrier protecting durable data, so failures are loud.
+// It returns how long the flush took.
+//
+// Bounded: every caller of Close passes context.Background(), and an
+// unbounded flush turns a wedged guest (D-state sync(2) on virtio-blk) into a
+// hang nothing but an external SIGKILL ends — a library caller just hangs.
+// Generous rather than snappy, matching `ossein stop`'s default grace: this
+// is the only barrier protecting durable data, and a real flush of a
+// gigabyte-dirty cache is allowed to be slow.
+func (i *Instance) flushDisks(ctx context.Context) time.Duration {
+	flushCtx, cancelFlush := context.WithTimeout(ctx, closeFlushTimeout)
+	defer cancelFlush()
+
+	flushStart := time.Now()
+
+	if err := i.agent.Sync(flushCtx); err != nil {
+		slog.Default().WarnContext(ctx, "guest sync failed; cache disk writes may be lost",
+			logKeyInstance, i.ID, logKeyErr, err)
+	}
+
+	for _, mnt := range i.mountedDisks {
+		err := i.agent.Umount(flushCtx, mnt)
+		if err != nil {
+			// One retry: buildkitd may still be releasing the mount.
+			err = i.agent.Umount(flushCtx, mnt)
+		}
+
+		if err != nil {
+			slog.Default().WarnContext(ctx, "cache disk unmount failed; image may be torn mid-write",
+				logKeyInstance, i.ID, "mount", mnt, logKeyErr, err)
+		}
+	}
+
+	return time.Since(flushStart)
 }
 
 // buildOCISpec assembles and marshals the container's OCI runtime spec from
@@ -886,7 +919,7 @@ func (i *Instance) buildOCISpec(ctx context.Context) ([]byte, error) {
 		ContainerID: i.ID,
 		RootfsPath:  i.rootfs,
 		Args:        args,
-		Env:         append(append([]string{}, i.img.Config.Env...), i.spec.Env...),
+		Env:         slices.Concat(i.img.Config.Env, i.spec.Env),
 		Cwd:         cwd,
 		User:        user,
 		TTY:         i.spec.TTY,
@@ -1091,7 +1124,7 @@ func (i *Instance) mountDisks(ctx context.Context, disks []DiskMount, logger *sl
 
 		i.mountedDisks = append(i.mountedDisks, guestMount)
 
-		logger.Info("mounted cache disk", "device", dev, "guest", disk.GuestPath)
+		logger.InfoContext(ctx, "mounted cache disk", "device", dev, "guest", disk.GuestPath)
 	}
 
 	return nil

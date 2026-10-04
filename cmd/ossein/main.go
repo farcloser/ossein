@@ -22,6 +22,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/mycophonic/primordium/filesystem/dirs"
 
+	"github.com/farcloser/ossein/internal/cli"
 	"github.com/farcloser/ossein/pkg/container"
 	"github.com/farcloser/ossein/pkg/guestartifacts"
 	"github.com/farcloser/ossein/pkg/image"
@@ -31,24 +32,20 @@ import (
 // -X main.<name>=…); the literals here are the fallback for a plain `go build`.
 // buildkitImage MUST stay digest-pinned: the tag is decorative, the digest is
 // what makes an unchanged ossein commit always run the same buildkit. The
-// Justfile is the source of truth — bump buildkit_tag + buildkit_digest there
-// (`just buildkit-digest <tag>` resolves the new digest) and mirror it here.
+// Justfile is the source of truth; Renovate rewrites both places in one update
+// (renovate.json matches this literal's exact shape — keep it).
 //
 //nolint:gochecknoglobals // -ldflags -X targets must be package-level vars
 var (
 	version = "0.0.1-dev"
 
-	buildkitImage = "docker.io/moby/buildkit:v0.32.0@" +
-		"sha256:1f8167fcb0eca5b7126353d35299386945cbb8949cc516c592a49f80cfce4fa2"
+	buildkitImage = "docker.io/moby/buildkit:v0.33.1@" +
+		"sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea"
 )
 
 // appName is the top-level segment for primordium's user dirs
 // (~/Library/Caches/<appName>/…). Matches the Go module for cache continuity.
 const appName = "ossein"
-
-// exitInternal is docker's runtime-error exit convention (125): an ossein
-// failure must be distinguishable from a workload that itself exited 1.
-const exitInternal = 125
 
 // CLI is the kong grammar. Kernel/Initfs are global (most subcommands need them).
 // Both are EMBEDDED in the binary (`just build` bundles the verified kernel + the
@@ -56,7 +53,7 @@ const exitInternal = 125
 // artifacts; a flag or the OSSEIN_KERNEL/OSSEIN_INITFS env var overrides with an
 // on-disk path (local dev, bench A/B).
 type CLI struct {
-	LogLevel string `default:"info"      enum:"debug,info,warn,error"                              env:"OSSEIN_LOG_LEVEL" help:"log verbosity" name:"log-level"`
+	LogLevel string `default:"info"      enum:"${log_levels}"                                      env:"OSSEIN_LOG_LEVEL" help:"log verbosity" name:"log-level"`
 	Kernel   string `env:"OSSEIN_KERNEL" help:"guest kernel path (default: the embedded kernel)"   name:"kernel"`
 	Initfs   string `env:"OSSEIN_INITFS" help:"vminitd initfs.cpio (default: the embedded initfs)" name:"initfs"`
 
@@ -72,27 +69,27 @@ type CLI struct {
 func main() {
 	dirs.SetAppName(appName) // must precede any dirs.* lookup (image cache)
 
-	var cli CLI
+	var root CLI
 
-	kctx := kong.Parse(&cli,
+	kctx := kong.Parse(&root,
 		kong.Name(appName),
 		kong.Description("Run Linux containers on macOS in per-container microVMs."),
 		kong.UsageOnError(),
 		// Struct tags are compile-time literals, so a linker-stamped default has
 		// to arrive as a kong variable: `default:"${buildkit_image}"` on
 		// buildkitCmd.Image interpolates this.
-		kong.Vars{"buildkit_image": buildkitImage},
+		kong.Vars{"buildkit_image": buildkitImage, "log_levels": cli.LogLevels},
 	)
 
-	logger := newLogger(cli.LogLevel)
+	logger := cli.NewLogger(root.LogLevel)
 
-	art := container.Artifacts{Kernel: cli.Kernel, Initfs: cli.Initfs}
+	art := container.Artifacts{Kernel: root.Kernel, Initfs: root.Initfs}
 
 	// Bind the logger, the resolved artifacts, and the level string (the detach
 	// re-exec needs the level) for injection into command Run methods. Runtime
 	// errors are logged through slog (kong already handled parse/usage errors
 	// during Parse), so all output shares one format and destination.
-	if err := kctx.Run(logger, &art, cli.LogLevel); err != nil {
+	if err := kctx.Run(logger, &art, root.LogLevel); err != nil {
 		// The workload's own nonzero status: all cleanup has unwound by now;
 		// pass the code through silently, exactly like the zero-status path.
 		if exit, ok := errors.AsType[exitError](err); ok {
@@ -100,7 +97,7 @@ func main() {
 		}
 
 		logger.Error("command failed", "err", err)
-		os.Exit(exitInternal)
+		os.Exit(cli.ExitInternal)
 	}
 }
 

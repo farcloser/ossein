@@ -2,12 +2,14 @@
 package image
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/mycophonic/primordium/bytesize"
 )
 
 // dropBlobs removes every cached blob directory while leaving the index alone,
@@ -67,7 +69,7 @@ func TestRootfsRecoversFromStaleIndexEntry(t *testing.T) {
 	const identifier = "test/img:latest@sha256:stale|linux/arm64"
 
 	// 1. A normal pull: the index records this identifier → digest(bytes A).
-	first, err := random.Image(1024, 2)
+	first, err := random.Image(bytesize.KiB, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +87,7 @@ func TestRootfsRecoversFromStaleIndexEntry(t *testing.T) {
 	// 3. The same identifier now flattens to DIFFERENT bytes — the situation a
 	//    compression change creates. The store verifies against the recorded
 	//    digest, rejects them, and discards what it fetched.
-	second, err := random.Image(2048, 3)
+	second, err := random.Image(2*bytesize.KiB, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +112,7 @@ func TestRootfsRecoversFromStaleIndexEntry(t *testing.T) {
 
 	// 5. And it must be the NEW content, not a stale blob resurrected.
 	again := readPin(t, mustRootfsFile(t, newTestImage(t, cache, second, identifier)))
-	if string(healed) != string(again) {
+	if !bytes.Equal(healed, again) {
 		t.Fatal("healed entry is not stable across runs")
 	}
 }

@@ -1,10 +1,6 @@
-# Project workflow (the generic verify matrix lives in ci.yaml, a canonical
-# limen file this deliberately does not touch): exercise the full product
-# build on the one platform that can produce it — kernel fetch + cosign/sha
-# verification, guest initfs assembly, //go:embed bundling, CGO/VZ link, and
-# codesign with the vz entitlements. GitHub's macOS runners cannot run VZ VMs
-# (no nested virtualization), so booting (`ossein doctor`) stays a laptop
-# check; everything up to the runnable signed binary is validated here.
+# Full product build on the only platform that can link it. GitHub macOS
+# runners cannot boot VZ (no nested virtualization), so `ossein doctor` stays
+# a laptop check — this validates up to the signed binary only.
 name: build
 
 on:
@@ -29,7 +25,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 

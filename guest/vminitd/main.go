@@ -15,7 +15,7 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
+	"log" //nolint:depguard // the serial console's logger: slog would add 128 KiB to PID 1.
 	"net"
 	"net/http"
 	"os"
@@ -26,6 +26,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/mdlayher/vsock"
+	"github.com/mycophonic/primordium/bytesize"
 	"golang.org/x/sys/unix"
 
 	"github.com/farcloser/ossein/guest/internal/guestagent"
@@ -135,7 +136,7 @@ func listenVsockRetry(port uint32, budget time.Duration) (*vsock.Listener, error
 const serverHeaderTimeout = 30 * time.Second
 
 // maxRequestBytes caps a single RPC request body (see the handler mux).
-const maxRequestBytes = 4 << 20 // 4 MiB
+const maxRequestBytes = 4 * bytesize.MiB
 
 // runInit performs PID-1 setup and serves the agent until the VM is stopped.
 func runInit() error {
@@ -259,7 +260,7 @@ func (l hostOnlyListener) Accept() (net.Conn, error) {
 // mountBaseFilesystems mounts the pseudo-filesystems the agent needs, mirroring
 // Apple's vminitd: proc, a tmpfs on /run (the root is read-only ext4, so /run
 // must be writable for container state), sysfs, then cgroup2. The mountpoint
-// directories come baked into the initfs (see tools/build-initfs); mounting onto them
+// directories come baked into the initfs (see hack/build-initfs); mounting onto them
 // does not write the read-only root.
 func mountBaseFilesystems() error {
 	const nodev = unix.MS_NOSUID | unix.MS_NODEV | unix.MS_NOEXEC

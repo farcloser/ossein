@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/mycophonic/primordium/bytesize"
 )
 
 // errAborted marks a response abandoned mid-flight after a handler panic.
@@ -16,7 +18,7 @@ var errAborted = errors.New("httpd: response aborted")
 // smaller than this, so the common case gets a length-delimited response and the
 // streaming case gets chunked — which is exactly the split net/http makes.
 const (
-	responseBufferLimit = 8 << 10
+	responseBufferLimit = 8 * bytesize.KiB
 
 	// crlf terminates every line of an HTTP/1.1 message head.
 	crlf = "\r\n"

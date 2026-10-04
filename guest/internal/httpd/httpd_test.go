@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/mycophonic/primordium/bytesize"
 
 	"github.com/farcloser/ossein/guest/internal/httpd"
 	pb "github.com/farcloser/ossein/internal/sandbox"
@@ -58,13 +59,14 @@ func raw(t *testing.T, addr string) (net.Conn, *bufio.Reader) {
 	return conn, bufio.NewReader(conn)
 }
 
-func post(path, body string) string {
-	return request(path, body, "")
+// post is a POST of body to /.
+func post(body string) string {
+	return request("/", body, "")
 }
 
 // postClose is post plus an explicit Connection: close.
-func postClose(path, body string) string {
-	return request(path, body, "Connection: close\r\n")
+func postClose(body string) string {
+	return request("/", body, "Connection: close\r\n")
 }
 
 func request(path, body, extra string) string {
@@ -298,7 +300,7 @@ func TestUndrainedBodyDoesNotDesyncNextRequest(t *testing.T) {
 	conn, reader := raw(t, addr)
 
 	for index := range 3 {
-		if _, err := conn.Write([]byte(post("/", "BODYBODYBODY"))); err != nil {
+		if _, err := conn.Write([]byte(post("BODYBODYBODY"))); err != nil {
 			t.Fatalf("write %d: %v", index, err)
 		}
 
@@ -324,7 +326,7 @@ func TestSmallResponseIsLengthDelimited(t *testing.T) {
 	}), time.Second)
 
 	conn, reader := raw(t, addr)
-	_, _ = conn.Write([]byte(post("/", "")))
+	_, _ = conn.Write([]byte(post("")))
 
 	resp, err := http.ReadResponse(reader, nil)
 	if err != nil {
@@ -345,7 +347,7 @@ func TestSmallResponseIsLengthDelimited(t *testing.T) {
 func TestLargeResponseSwitchesToChunked(t *testing.T) {
 	t.Parallel()
 
-	payload := strings.Repeat("x", 64<<10)
+	payload := strings.Repeat("x", 64*bytesize.KiB)
 	addr := start(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(payload))
 	}), time.Second)
@@ -375,7 +377,7 @@ func TestConnectionCloseIsHonored(t *testing.T) {
 	}), time.Second)
 
 	conn, reader := raw(t, addr)
-	_, _ = conn.Write([]byte(postClose("/", "")))
+	_, _ = conn.Write([]byte(postClose("")))
 
 	resp, err := http.ReadResponse(reader, nil)
 	if err != nil {
@@ -479,7 +481,7 @@ func TestIdleConnectionIsNotClosedByHeaderTimeout(t *testing.T) {
 
 	conn, reader := raw(t, addr)
 
-	_, _ = conn.Write([]byte(post("/", "")))
+	_, _ = conn.Write([]byte(post("")))
 
 	resp, err := http.ReadResponse(reader, nil)
 	if err != nil {
@@ -492,7 +494,7 @@ func TestIdleConnectionIsNotClosedByHeaderTimeout(t *testing.T) {
 	// Idle for well over the header timeout, then reuse the connection.
 	time.Sleep(400 * time.Millisecond)
 
-	if _, err := conn.Write([]byte(post("/", ""))); err != nil {
+	if _, err = conn.Write([]byte(post(""))); err != nil {
 		t.Fatalf("write after idle: %v", err)
 	}
 
@@ -553,7 +555,7 @@ func TestHeaderValueCannotSplitResponse(t *testing.T) {
 	}), time.Second)
 
 	conn, reader := raw(t, addr)
-	_, _ = conn.Write([]byte(postClose("/", "")))
+	_, _ = conn.Write([]byte(postClose("")))
 
 	resp, err := http.ReadResponse(reader, nil)
 	if err != nil {
@@ -577,18 +579,14 @@ func TestConcurrentConnections(t *testing.T) {
 	errs := make(chan error, 16)
 
 	for index := range 16 {
-		waiters.Add(1)
-
-		go func() {
-			defer waiters.Done()
-
+		waiters.Go(func() {
 			client := connect.NewClient[pb.GetenvRequest, pb.GetenvResponse](
 				&http.Client{}, "http://"+addr+"/x.v1/Getenv",
 			)
 
 			key := fmt.Sprintf("k%d", index)
 
-			resp, err := client.CallUnary(context.Background(),
+			resp, err := client.CallUnary(t.Context(),
 				connect.NewRequest(&pb.GetenvRequest{Key: key}))
 			if err != nil {
 				errs <- err
@@ -599,7 +597,7 @@ func TestConcurrentConnections(t *testing.T) {
 			if resp.Msg.GetValue() != key {
 				errs <- fmt.Errorf("%w: got %q want %q", errMismatch, resp.Msg.GetValue(), key)
 			}
-		}()
+		})
 	}
 
 	waiters.Wait()

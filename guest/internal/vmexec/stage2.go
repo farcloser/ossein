@@ -60,7 +60,7 @@ func Stage2() error {
 
 	errPipe := os.NewFile(fdError, "error")
 	if err := run(*specPath, *stdin, *stdout, *stderr, *tty); err != nil {
-		_, _ = io.WriteString(errPipe, err.Error())
+		_, _ = errPipe.WriteString(err.Error())
 		_ = errPipe.Close()
 
 		return err
@@ -73,7 +73,7 @@ func Stage2() error {
 // a pty comes from the container's devpts (after pivot), vsock stdio does not
 // (before pivot) — splitting the function would duplicate the whole sequence.
 //
-//revive:disable-next-line:flag-parameter
+//nolint:gocognit // tty branches one ordered setup sequence; see above.
 func run(specPath string, stdin, stdout, stderr uint, tty bool) error {
 	spec, err := loadSpec(specPath)
 	if err != nil {
@@ -87,45 +87,45 @@ func run(specPath string, stdin, stdout, stderr uint, tty bool) error {
 	// Non-TTY stdio is wired before pivot (vsock needs no filesystem). TTY stdio
 	// is set up after the rootfs (the pty comes from the container's devpts).
 	if !tty {
-		if err := wireStdio(stdin, stdout, stderr); err != nil {
+		if err = wireStdio(stdin, stdout, stderr); err != nil {
 			return err
 		}
 	}
 
-	if err := setupRootfs(spec); err != nil {
+	if err = setupRootfs(spec); err != nil {
 		return err
 	}
 
 	if tty {
-		if err := setupConsole(); err != nil {
+		if err = setupConsole(); err != nil {
 			return err
 		}
 	}
 
 	if spec.Hostname != "" {
-		if err := unix.Sethostname([]byte(spec.Hostname)); err != nil {
+		if err = unix.Sethostname([]byte(spec.Hostname)); err != nil {
 			return fmt.Errorf("sethostname: %w", err)
 		}
 	}
 
-	if err := applySysctls(spec); err != nil {
+	if err = applySysctls(spec); err != nil {
 		return err
 	}
 	// Masked/readonly paths need CAP_SYS_ADMIN (still held as root here) and must
 	// precede the uid/cap drop; mask first so a doubly-listed path is hidden.
-	if err := applyMaskedPaths(spec); err != nil {
+	if err = applyMaskedPaths(spec); err != nil {
 		return err
 	}
 
-	if err := applyReadonlyPaths(spec); err != nil {
+	if err = applyReadonlyPaths(spec); err != nil {
 		return err
 	}
 
-	if err := setCloexecOnExtraFDs(); err != nil {
+	if err = setCloexecOnExtraFDs(); err != nil {
 		return err
 	}
 
-	if err := setRLimits(spec.Process.Rlimits); err != nil {
+	if err = setRLimits(spec.Process.Rlimits); err != nil {
 		return err
 	}
 
@@ -250,7 +250,7 @@ func setupConsole() error {
 	}
 	defer func() { _ = unix.Close(master) }()
 
-	if err := unix.IoctlSetPointerInt(master, unix.TIOCSPTLCK, 0); err != nil {
+	if err = unix.IoctlSetPointerInt(master, unix.TIOCSPTLCK, 0); err != nil {
 		return fmt.Errorf("unlockpt: %w", err)
 	}
 
@@ -377,6 +377,9 @@ func mountInto(root string, mnt specs.Mount) error {
 	return nil
 }
 
+// devNodeMode is crw-rw-rw-, what devtmpfs gives these nodes.
+const devNodeMode = 0o666
+
 // makeDevNodes populates the container's private tmpfs /dev with the standard
 // device set (runc's defaults). The spec mounts tmpfs — not the singleton
 // devtmpfs — on /dev precisely so these nodes, and the console/ptmx tweaks
@@ -406,7 +409,7 @@ func makeDevNodes(root string) error {
 		// Mkdev of these fixed single-digit major/minor pairs is far below any
 		// integer boundary; the int conversion cannot overflow.
 		dev := unix.Mkdev(node.major, node.minor)
-		if err := unix.Mknod(path, unix.S_IFCHR|0o666, int(dev)); err != nil { // #nosec G115 -- see above
+		if err := unix.Mknod(path, unix.S_IFCHR|devNodeMode, int(dev)); err != nil { // #nosec G115 -- see above
 			return fmt.Errorf("mknod /dev/%s: %w", node.name, err)
 		}
 	}
@@ -417,7 +420,7 @@ func makeDevNodes(root string) error {
 // configureConsole replaces the devpts-provided /dev/ptmx with the standard
 // symlink to pts/ptmx, so opening /dev/ptmx uses the container's devpts.
 func configureConsole(root string) {
-	ptmx := filepath.Join(root, "dev/ptmx")
+	ptmx := filepath.Join(root, "dev", "ptmx")
 	_ = os.Remove(ptmx)
 	_ = os.Symlink("pts/ptmx", ptmx)
 }

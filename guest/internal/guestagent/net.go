@@ -22,7 +22,6 @@ const linkErrFmt = "link %s: %v"
 // IpLinkSet brings an interface up/down and optionally sets its MTU (netlink).
 // The name is fixed by the generated SandboxContext interface.
 //
-//nolint:staticcheck // ST1003: name fixed by the generated interface
 //revive:disable-next-line:var-naming
 func (*Agent) IpLinkSet(_ context.Context, req *pb.IpLinkSetRequest) (*pb.IpLinkSetResponse, error) {
 	link, err := netlink.LinkByName(req.GetInterface())
@@ -50,7 +49,6 @@ func (*Agent) IpLinkSet(_ context.Context, req *pb.IpLinkSetRequest) (*pb.IpLink
 // IpAddrAdd assigns an IPv4 (and optionally IPv6) CIDR address to an interface.
 // The name is fixed by the generated SandboxContext interface.
 //
-//nolint:staticcheck // ST1003: name fixed by the generated interface
 //revive:disable-next-line:var-naming
 func (*Agent) IpAddrAdd(_ context.Context, req *pb.IpAddrAddRequest) (*pb.IpAddrAddResponse, error) {
 	link, err := netlink.LinkByName(req.GetInterface())
@@ -79,7 +77,6 @@ func (*Agent) IpAddrAdd(_ context.Context, req *pb.IpAddrAddRequest) (*pb.IpAddr
 // IpRouteAddDefault installs a default route via the given gateway on an interface.
 // The name is fixed by the generated SandboxContext interface.
 //
-//nolint:staticcheck // ST1003: name fixed by the generated interface
 //revive:disable-next-line:var-naming
 func (*Agent) IpRouteAddDefault(
 	_ context.Context,
@@ -112,7 +109,6 @@ func (*Agent) IpRouteAddDefault(
 // rootfs directory; the file lands at <location>/etc/resolv.conf.
 // The name is fixed by the generated SandboxContext interface.
 //
-//nolint:staticcheck // ST1003: name fixed by the generated interface
 //revive:disable-next-line:var-naming
 func (*Agent) ConfigureDns(_ context.Context, req *pb.ConfigureDnsRequest) (*pb.ConfigureDnsResponse, error) {
 	var builder strings.Builder
@@ -186,7 +182,7 @@ func writeRootfsFile(location, rel, content string) error {
 
 	// Replace, never follow: a symlink sitting at the destination must not
 	// redirect this write, and O_NOFOLLOW closes the recreate race.
-	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+	if err = os.Remove(target); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove before write %s: %w", target, err)
 	}
 

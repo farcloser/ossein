@@ -348,6 +348,11 @@ func (c *NetworkConfiguration) SetMtu(mtu uint32) error {
 // [vmnet_network_ref]: https://developer.apple.com/documentation/vmnet/vmnet_network_ref?language=objc
 type Network struct {
 	*pointer
+
+	// OSSEIN FORK: the registered cleanup, so Release can cancel it and
+	// release exactly once.
+	cleanup runtime.Cleanup
+	released bool
 }
 
 // NewNetwork creates a new [Network] with [NetworkConfiguration].
@@ -366,22 +371,40 @@ func NewNetwork(config *NetworkConfiguration) (*Network, error) {
 	if !errors.Is(status, ErrSuccess) {
 		return nil, fmt.Errorf("failed to create VmnetNetwork: %w", status)
 	}
-	network := &Network{objc.NewPointer(ptr)}
+	network := &Network{pointer: objc.NewPointer(ptr)}
 	ReleaseOnCleanup(network)
 	return network, nil
 }
 
 // releaseOnCleanup registers a cleanup function to release the object when cleaned up.
 func (n *Network) releaseOnCleanup() {
-	runtime.AddCleanup(n, func(p unsafe.Pointer) {
+	n.cleanup = runtime.AddCleanup(n, func(p unsafe.Pointer) {
 		C.vmnetRelease(p)
 	}, objc.Ptr(n))
+}
+
+// Release drops this process's reference now rather than at garbage
+// collection.
+//
+// OSSEIN FORK. The daemon behind vmnet reserves a subnet for the lifetime of
+// the vmnet_network_ref and only frees it on CFRelease: a process that exits
+// with the reference still held leaves the reservation booked host-wide until
+// the daemon restarts (64 of them exhaust it). Idempotent; the object must
+// not be used afterwards.
+func (n *Network) Release() {
+	if n == nil || n.released {
+		return
+	}
+
+	n.released = true
+	n.cleanup.Stop()
+	C.vmnetRelease(objc.Ptr(n))
 }
 
 
 // NewNetworkFromPointer creates a new [Network] from an existing [objc.Pointer].
 func NewNetworkFromPointer(p *objc.Pointer) *Network {
-	return &Network{p}
+	return &Network{pointer: p}
 }
 
 

@@ -32,12 +32,13 @@ import (
 	"strings"
 
 	goerofs "github.com/forkcloser/erofs"
+	"github.com/mycophonic/primordium/bytesize"
 )
 
 // erofsBlockSize pins the fs block size to the GUEST page size; the library
 // would otherwise be free to choose, and anything above 4096 is unmountable
 // on the 4KiB-page guest kernel (same constraint as mkfs.erofs -b4096).
-const erofsBlockSize = 4096
+const erofsBlockSize = 4 * bytesize.KiB
 
 // buildGoEROFS converts the flattened tar stream into an uncompressed EROFS
 // image in a temp file and returns it for the content store to consume.
@@ -64,7 +65,7 @@ func buildGoEROFS(tarStream io.ReadCloser) (io.ReadCloser, error) {
 	convErr := convertTarToEROFS(tarStream, img, tmpDir)
 
 	closeErr := errors.Join(img.Close(), tarStream.Close())
-	if err := errors.Join(convErr, closeErr); err != nil {
+	if err = errors.Join(convErr, closeErr); err != nil {
 		_ = os.RemoveAll(tmpDir)
 
 		return nil, fmt.Errorf("%w: goerofs conversion: %w", ErrCache, err)
@@ -80,7 +81,8 @@ func buildGoEROFS(tarStream io.ReadCloser) (io.ReadCloser, error) {
 	return newPaddedReader(&removeOnClose{File: reopened, dir: tmpDir}), nil
 }
 
-//nolint:gocognit,cyclop,funlen // linear tar-entry dispatch, one case per type
+// convertTarToEROFS writes every entry of the tar stream into an EROFS image
+// on img, then finalizes it.
 func convertTarToEROFS(tarStream io.Reader, img *os.File, tmpDir string) error {
 	writer := goerofs.Create(img,
 		goerofs.WithBlockSize(erofsBlockSize),
@@ -92,7 +94,7 @@ func convertTarToEROFS(tarStream io.Reader, img *os.File, tmpDir string) error {
 
 	for {
 		hdr, err := tarReader.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 
@@ -112,42 +114,14 @@ func convertTarToEROFS(tarStream io.Reader, img *os.File, tmpDir string) error {
 			continue
 		}
 
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := writer.Mkdir(name, hdr.FileInfo().Mode()); err != nil {
-				return fmt.Errorf("%s: mkdir: %w", name, err)
-			}
-
-		case tar.TypeReg, tar.TypeGNUSparse:
-			if err := erofsWriteFile(writer, name, tarReader); err != nil {
-				return fmt.Errorf("%s: %w", name, err)
-			}
-
-		case tar.TypeSymlink:
-			if err := writer.Symlink(hdr.Linkname, name); err != nil {
-				return fmt.Errorf("%s: symlink: %w", name, err)
-			}
-
-		case tar.TypeLink:
-			// A real shared-inode hardlink (fork's Writer.Link). The target's
-			// inode already carries its metadata, and a link entry's own
-			// header fields are often zeroed, so they must NOT be re-applied.
-			if err := writer.Link(erofsPath(hdr.Linkname), name); err != nil {
-				return fmt.Errorf("%s: link: %w", name, err)
-			}
-
-			continue // metadata lives on the shared inode
-
-		case tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
-			if err := writer.Mknod(name, erofsRawMode(hdr), erofsRdev(hdr)); err != nil {
-				return fmt.Errorf("%s: mknod: %w", name, err)
-			}
-
-		default:
-			continue // skip unsupported entry types
+		written, err := writeEROFSEntry(writer, name, hdr, tarReader)
+		if err != nil {
+			return err
 		}
 
-		applyEROFSMetadata(writer, name, hdr)
+		if written {
+			applyEROFSMetadata(writer, name, hdr)
+		}
 	}
 
 	if err := writer.Close(); err != nil {
@@ -155,6 +129,48 @@ func convertTarToEROFS(tarStream io.Reader, img *os.File, tmpDir string) error {
 	}
 
 	return nil
+}
+
+// writeEROFSEntry writes one tar entry at name, one case per entry type, and
+// reports whether the entry's header metadata is to be applied to it. Not for
+// a hardlink: the target's inode already carries its metadata, and a link
+// entry's own header fields are often zeroed, so they must NOT be re-applied.
+// Nor for an entry of a type the converter skips.
+func writeEROFSEntry(writer *goerofs.Writer, name string, hdr *tar.Header, content io.Reader) (bool, error) {
+	switch hdr.Typeflag {
+	case tar.TypeDir:
+		if err := writer.Mkdir(name, hdr.FileInfo().Mode()); err != nil {
+			return false, fmt.Errorf("%s: mkdir: %w", name, err)
+		}
+
+	case tar.TypeReg, tar.TypeGNUSparse:
+		if err := erofsWriteFile(writer, name, content); err != nil {
+			return false, fmt.Errorf("%s: %w", name, err)
+		}
+
+	case tar.TypeSymlink:
+		if err := writer.Symlink(hdr.Linkname, name); err != nil {
+			return false, fmt.Errorf("%s: symlink: %w", name, err)
+		}
+
+	case tar.TypeLink:
+		// A real shared-inode hardlink (fork's Writer.Link).
+		if err := writer.Link(erofsPath(hdr.Linkname), name); err != nil {
+			return false, fmt.Errorf("%s: link: %w", name, err)
+		}
+
+		return false, nil
+
+	case tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
+		if err := writer.Mknod(name, hdr.FileInfo().Mode(), erofsRdev(hdr)); err != nil {
+			return false, fmt.Errorf("%s: mknod: %w", name, err)
+		}
+
+	default:
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func erofsWriteFile(writer *goerofs.Writer, name string, content io.Reader) error {
@@ -219,28 +235,6 @@ func erofsPath(name string) string {
 
 	return cleaned
 }
-
-// erofsRawMode builds the raw stat mode (type bits | permissions) Mknod
-// expects.
-func erofsRawMode(hdr *tar.Header) uint16 {
-	perm := uint16(hdr.Mode & 0o7777)
-
-	switch hdr.Typeflag {
-	case tar.TypeChar:
-		return statTypeChr | perm
-	case tar.TypeBlock:
-		return statTypeBlk | perm
-	default:
-		return statTypeFifo | perm
-	}
-}
-
-// Raw stat type bits (sys/stat.h), shared across unixes.
-const (
-	statTypeFifo uint16 = 0o010000
-	statTypeChr  uint16 = 0o020000
-	statTypeBlk  uint16 = 0o060000
-)
 
 // rdev encoding, Linux new_encode_dev layout: low byte of minor, then 12
 // bits of major, then the minor's high bits — the old major<<8|minor form is

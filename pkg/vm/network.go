@@ -124,3 +124,17 @@ func addressing(prefix netip.Prefix) (gateway, guest netip.Addr, err error) {
 
 	return gateway, guest, nil
 }
+
+// Close releases the network's reservation with the framework. The subnet the
+// daemon set aside for this network stays booked, host-wide, until the
+// reference is released: a process that exits without this leaves it behind
+// until the daemon restarts, and 64 such exits leave no subnet for anyone.
+// Idempotent; the VM must be stopped first, since its device still attaches
+// here.
+func (n *Network) Close() {
+	if n == nil {
+		return
+	}
+
+	n.network.Release()
+}

@@ -78,6 +78,8 @@ func procKey(id, containerID string) string {
 // container's stdio to the host's vsock ports, runs the full childSetup
 // (mounts, pivot_root, caps, uid), then blocks on a start gate. It returns once
 // the child reports ready.
+//
+//nolint:gocognit // one ordered acquisition sequence under a shared rollback (abort, then kill).
 func (a *Agent) CreateProcess(ctx context.Context, req *pb.CreateProcessRequest) (*pb.CreateProcessResponse, error) {
 	key := procKey(req.GetId(), req.GetContainerID())
 
@@ -104,12 +106,12 @@ func (a *Agent) CreateProcess(ctx context.Context, req *pb.CreateProcessRequest)
 	}
 
 	// 0o755 matches the standard /run directory mode; the specs inside are 0o600.
-	if err := os.MkdirAll(specDir, stdDirMode); err != nil {
+	if err = os.MkdirAll(specDir, stdDirMode); err != nil {
 		return nil, rpcErrorf(connect.CodeInternal, "create spec dir: %v", err)
 	}
 
 	specPath := filepath.Join(specDir, strings.ReplaceAll(key, "/", "_")+".json")
-	if err := os.WriteFile(specPath, req.GetConfiguration(), specFileMode); err != nil {
+	if err = os.WriteFile(specPath, req.GetConfiguration(), specFileMode); err != nil {
 		_ = os.Remove(specPath) // a failed write can leave a partial file
 
 		return nil, rpcErrorf(connect.CodeInternal, "write spec: %v", err)

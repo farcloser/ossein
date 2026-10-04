@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log" //nolint:depguard // the serial console's logger: slog would add 128 KiB to PID 1.
 	"os"
 	goruntime "runtime"
 	"strings"
@@ -128,7 +128,11 @@ func (a *Agent) Copy(ctx context.Context, req *pb.CopyRequest, stream *connect.S
 		return fmt.Errorf("copy: %w", job.err)
 	}
 
-	return stream.Send(&pb.CopyResponse{Status: pb.CopyResponse_COMPLETE}) //nolint:wrapcheck
+	if err := stream.Send(&pb.CopyResponse{Status: pb.CopyResponse_COMPLETE}); err != nil {
+		return fmt.Errorf("copy: sending completion: %w", err)
+	}
+
+	return nil
 }
 
 // materializeRootfs makes the container rootfs appear at dest, as mounts.
@@ -238,20 +242,8 @@ func resolveVirtioBlkPath(serial string, budget time.Duration) (string, error) {
 	deadline := time.Now().Add(budget)
 
 	for {
-		entries, err := os.ReadDir("/sys/block")
-		if err == nil {
-			for _, entry := range entries {
-				raw, readErr := os.ReadFile(
-					"/sys/block/" + entry.Name() + "/serial",
-				)
-				if readErr != nil {
-					continue
-				}
-
-				if strings.TrimSpace(string(raw)) == serial {
-					return "/dev/" + entry.Name(), nil
-				}
-			}
+		if name, found := findVirtioBlk(serial); found {
+			return "/dev/" + name, nil
 		}
 
 		if time.Now().After(deadline) {
@@ -260,6 +252,29 @@ func resolveVirtioBlkPath(serial string, budget time.Duration) (string, error) {
 
 		time.Sleep(devicePollInterval)
 	}
+}
+
+// findVirtioBlk scans /sys/block once for the disk whose serial is serial.
+func findVirtioBlk(serial string) (string, bool) {
+	entries, err := os.ReadDir("/sys/block")
+	if err != nil {
+		return "", false
+	}
+
+	for _, entry := range entries {
+		raw, readErr := os.ReadFile(
+			"/sys/block/" + entry.Name() + "/serial",
+		)
+		if readErr != nil {
+			continue
+		}
+
+		if strings.TrimSpace(string(raw)) == serial {
+			return entry.Name(), true
+		}
+	}
+
+	return "", false
 }
 
 // deviceWaitBudget/devicePollInterval bound the wait for an async-probed

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mycophonic/primordium/bytesize"
+
 	"github.com/farcloser/ossein/pkg/volume"
 )
 
@@ -16,8 +18,8 @@ const (
 	// testImageSize keeps the (sparse) test images small enough to format fast.
 	// It must exceed 128 MiB: go-diskfs force-enables the ext4 resize inode and
 	// refuses any single-block-group image (≤128 MiB at 4 KiB blocks) with "no
-	// backup groups available" (see tools/build-initfs for the long story).
-	testImageSize = 192 * 1024 * 1024 // 192 MiB
+	// backup groups available" (see hack/build-initfs for the long story).
+	testImageSize = 192 * bytesize.MiB
 
 	// ext4MagicOffset / ext4Magic mirror the superblock constants under test:
 	// s_magic sits at byte 1024+56, little-endian 0xEF53.
@@ -79,11 +81,11 @@ func TestEnsureRefusesConcurrentUse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := volume.Ensure(dir, testImageSize, false); !errors.Is(err, volume.ErrInUse) {
+	if _, err = volume.Ensure(dir, testImageSize, false); !errors.Is(err, volume.ErrInUse) {
 		t.Fatalf("second Ensure while held = %v, want ErrInUse", err)
 	}
 
-	if err := first.Close(); err != nil {
+	if err = first.Close(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -125,7 +127,7 @@ func TestPruneUnusedSkipsHeldRemovesIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := idle.Close(); err != nil {
+	if err = idle.Close(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -198,7 +200,7 @@ func TestEnsureRejectsCorruptImage(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := vol.Close(); err != nil {
+			if err = vol.Close(); err != nil {
 				t.Fatal(err)
 			}
 

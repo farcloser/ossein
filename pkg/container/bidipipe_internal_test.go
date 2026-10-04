@@ -25,7 +25,7 @@ type noHalfClose struct {
 
 // socketPair returns a connected *net.UnixConn pair. socketpair(2) rather than
 // a listener: macOS caps sun_path at 104 bytes and t.TempDir() paths overrun it.
-func socketPair(t *testing.T) (*net.UnixConn, *net.UnixConn) {
+func socketPair(t *testing.T) (left, right *net.UnixConn) {
 	t.Helper()
 
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)

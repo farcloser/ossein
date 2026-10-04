@@ -29,7 +29,7 @@ const Revision = "1"
 // dedicated version RPC.
 const RevEnvVar = "OSSEIN_PROTO_REV"
 
-// InitPath is where the guest binary lives inside the initfs. tools/build-initfs
+// InitPath is where the guest binary lives inside the initfs. hack/build-initfs
 // packs it at this path and the host boots with init=<InitPath> on the kernel
 // cmdline; if the two ever disagreed the kernel would find no init and panic
 // before anything could report why.

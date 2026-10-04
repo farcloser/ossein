@@ -24,6 +24,7 @@ import (
 
 	"github.com/diskfs/go-diskfs/backend/file"
 	"github.com/diskfs/go-diskfs/filesystem/ext4"
+	"github.com/mycophonic/primordium/filesystem"
 	"github.com/mycophonic/primordium/filesystem/dirs"
 	"github.com/mycophonic/primordium/filesystem/flock"
 )
@@ -43,9 +44,6 @@ const (
 	// statBlockSize is the fixed unit of stat(2)'s st_blocks field (always 512
 	// bytes), used to compute a sparse image's actual on-disk usage.
 	statBlockSize = 512
-
-	lockFilePerm  = 0o600
-	gitignorePerm = 0o644 // plain marker file — world-readable, unlike the lock
 
 	// ext4MagicOffset is where the ext4 superblock magic lives: the superblock
 	// starts at byte 1024 and s_magic sits 56 bytes in (offset 0x438).
@@ -114,8 +112,6 @@ func CentralDir(keySource string) (string, error) {
 // must Close it once its VM has stopped.
 // The gitignore bool is a deliberate mode switch, not hidden control flow:
 // central caches must never write into the tree, project-local ones must.
-//
-//revive:disable-next-line:flag-parameter
 func Ensure(dir string, sizeBytes int64, gitignore bool) (*Volume, error) {
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return nil, fmt.Errorf("creating cache dir: %w", err)
@@ -147,7 +143,11 @@ func Ensure(dir string, sizeBytes int64, gitignore bool) (*Volume, error) {
 func writeGitignore(dir string) error {
 	const content = "# ossein build cache — machine-local, do not commit\n*\n"
 
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(content), gitignorePerm); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, ".gitignore"),
+		[]byte(content),
+		filesystem.FilePermissionsDefault,
+	); err != nil {
 		return fmt.Errorf("writing cache .gitignore: %w", err)
 	}
 
@@ -178,7 +178,7 @@ func tryLockOnce(dir string) (*os.File, error) {
 	lockPath := filepath.Join(dir, lockName)
 
 	// #nosec G304 -- lockPath is a fixed ossein-owned path under DataDir()/buildkit
-	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDONLY, lockFilePerm)
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDONLY, filesystem.FilePermissionsPrivate)
 	if err != nil {
 		return nil, fmt.Errorf("creating lock file: %w", err)
 	}

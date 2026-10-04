@@ -3,18 +3,24 @@ package image
 
 import (
 	"bytes"
-	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	goerofs "github.com/forkcloser/erofs"
-	"github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/mycophonic/primordium/bytesize"
 	blobcache "github.com/mycophonic/primordium/store/cache"
 
 	"github.com/farcloser/ossein/internal/rootfsblob"
@@ -62,7 +68,7 @@ func TestCacheRootfsFlattensAndCaches(t *testing.T) {
 	}
 	defer func() { _ = cache.Close() }()
 
-	source, err := random.Image(1024, 2) // 1KiB across 2 layers
+	source, err := random.Image(bytesize.KiB, 2) // across 2 layers
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +133,7 @@ func TestCacheGarbageCollect(t *testing.T) {
 	}
 	defer func() { _ = cache.Close() }()
 
-	source, err := random.Image(2048, 1)
+	source, err := random.Image(2*bytesize.KiB, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,56 +159,8 @@ func mustRootfsFile(t *testing.T, img *Image) *blobcache.PinnedFile {
 	return pin
 }
 
-func TestResolutionRoundTrip(t *testing.T) {
+func TestAcquireRecordDropsWhatIsNotARecord(t *testing.T) {
 	t.Parallel()
-
-	path := filepath.Join(t.TempDir(), "res.json")
-	cfg := v1.Config{Entrypoint: []string{"/bin/sh"}, Env: []string{"FOO=bar"}}
-
-	storeResolution(path, "sha256:deadbeef", cfg)
-
-	res, err := loadResolution(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if res == nil {
-		t.Fatal("stored resolution reads as a miss")
-	}
-
-	if res.Digest != "sha256:deadbeef" {
-		t.Fatalf("digest = %q, want sha256:deadbeef", res.Digest)
-	}
-
-	if !reflect.DeepEqual(res.Config.Entrypoint, cfg.Entrypoint) || !reflect.DeepEqual(res.Config.Env, cfg.Env) {
-		t.Fatalf("config round-trip mismatch: %+v", res.Config)
-	}
-
-	// Corrupt entry → clean miss (nil, nil), never an error.
-	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	res, err = loadResolution(path)
-	if err != nil {
-		t.Fatalf("corrupt resolution must not error: %v", err)
-	}
-
-	if res != nil {
-		t.Fatalf("corrupt resolution must read as a miss, got %+v", res)
-	}
-
-	// Absent file → clean miss too.
-	res, err = loadResolution(filepath.Join(t.TempDir(), "absent.json"))
-	if err != nil || res != nil {
-		t.Fatalf("absent resolution = (%+v, %v), want (nil, nil)", res, err)
-	}
-}
-
-func TestResolvePullNeverUncachedFails(t *testing.T) {
-	// Redirect $HOME so the resolve cache (under dirs.CacheDir) is empty and the
-	// test never touches the user's real cache. t.Setenv forbids t.Parallel.
-	t.Setenv("HOME", t.TempDir())
 
 	cache, err := openCache(t.TempDir())
 	if err != nil {
@@ -211,9 +169,308 @@ func TestResolvePullNeverUncachedFails(t *testing.T) {
 
 	defer func() { _ = cache.Close() }()
 
-	_, err = Resolve(context.Background(), cache, "example.com/never/cached:latest", "", PullNever)
+	const identifier = "resolve|example.com/x:dev|linux/arm64|test"
+
+	// Something else wrote bytes under our identifier.
+	writeRaw(t, cache, identifier, []byte("{not a record"))
+
+	// A refusing fetch: the garbage is dropped, the refusal is the answer.
+	_, err = acquireRecord(cache, identifier, func() (io.ReadCloser, error) {
+		return nil, fmt.Errorf("%w: refused", ErrResolve)
+	})
+	if !errors.Is(err, ErrResolve) {
+		t.Fatalf("acquireRecord(garbage, refuse) = %v, want ErrResolve", err)
+	}
+
+	// A fetch that answers: the garbage is dropped and the answer stored.
+	want := resolution{Digest: "sha256:deadbeef", Config: v1.Config{Entrypoint: []string{"/bin/sh"}}}
+	fetched := 0
+
+	got, err := acquireRecord(cache, identifier, func() (io.ReadCloser, error) {
+		fetched++
+
+		return io.NopCloser(bytes.NewReader(mustJSON(t, want))), nil
+	})
+	if err != nil || got.Digest != want.Digest || !reflect.DeepEqual(got.Config.Entrypoint, want.Config.Entrypoint) {
+		t.Fatalf("acquireRecord(garbage, answer) = (%+v, %v)", got, err)
+	}
+
+	// Now a hit: the fetch is not called again.
+	if _, err := acquireRecord(cache, identifier, func() (io.ReadCloser, error) {
+		fetched++
+
+		return nil, errors.New("must not fetch on a hit")
+	}); err != nil || fetched != 1 {
+		t.Fatalf("hit = (%v, fetched %d), want no fetch", err, fetched)
+	}
+}
+
+func TestResolveAlwaysDropsTheRecord(t *testing.T) {
+	t.Parallel()
+
+	cache, err := openCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = cache.Close() }()
+
+	fixture := newPinnedFixture(t)
+	ref := "example.com/pinned@" + fixture.idxDigest
+	writeRecord(t, cache, ref, fixture.record)
+
+	// never: served from the record.
+	if _, err := Resolve(t.Context(), cache, ref, "", PullNever); err != nil {
+		t.Fatalf("Resolve(never) = %v", err)
+	}
+
+	// always: the record is dropped first, so the registry is consulted — an
+	// example.com registry this test cannot reach, which is the proof.
+	if _, err := Resolve(t.Context(), cache, ref, "", PullAlways); !errors.Is(err, ErrResolve) {
+		t.Fatalf("Resolve(always) = %v, want ErrResolve from the registry", err)
+	}
+
+	// And the record did not survive the attempt.
+	if _, err := Resolve(t.Context(), cache, ref, "", PullNever); !errors.Is(err, ErrResolve) {
+		t.Fatalf("Resolve(never) after always = %v, want ErrResolve (not resolved locally)", err)
+	}
+}
+
+func TestResolvePullNeverUncachedFails(t *testing.T) {
+	t.Parallel()
+
+	cache, err := openCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = cache.Close() }()
+
+	_, err = Resolve(t.Context(), cache, "example.com/never/cached:latest", "", PullNever)
 	if !errors.Is(err, ErrResolve) {
 		t.Fatalf("Resolve(PullNever, uncached) = %v, want ErrResolve", err)
+	}
+
+	// The refusal is the whole message: no store framing around it.
+	if msg := err.Error(); !strings.Contains(msg, "--pull=never") || strings.Contains(msg, "fetch:") {
+		t.Fatalf("refusal is framed by the store: %q", msg)
+	}
+}
+
+// pinnedFixture is a random image, an index that lists it for the host
+// platform, and the chained record online() would have written for it.
+type pinnedFixture struct {
+	img       v1.Image
+	imgDigest string
+	idxDigest string
+	record    resolution
+}
+
+func newPinnedFixture(t *testing.T) pinnedFixture {
+	t.Helper()
+
+	img, err := random.Image(512, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Listed for the platform the tests resolve — the host's, whichever
+	// runner this is — since that is what the index must vouch for.
+	host := hostPlatform()
+
+	idx := mutate.AppendManifests(empty.Index, mutate.IndexAddendum{
+		Add:       img,
+		MediaType: types.OCIManifestSchema1,
+		Platform:  &host,
+	})
+
+	rawIndex, err := idx.RawManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rawManifest, err := img.RawManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rawConfig, err := img.RawConfigFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := img.ConfigFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	imgDigest, _ := img.Digest()
+	idxDigest, _ := idx.Digest()
+
+	return pinnedFixture{
+		img: img, imgDigest: imgDigest.String(), idxDigest: idxDigest.String(),
+		record: resolution{
+			Digest: imgDigest.String(), Config: cfg.Config,
+			Index: rawIndex, Manifest: rawManifest, ConfigBlob: rawConfig,
+		},
+	}
+}
+
+// writeRecord stores rec as ref's record for the host platform, replacing
+// whatever the identifier held.
+func writeRecord(t *testing.T, store Cache, ref string, rec resolution) {
+	t.Helper()
+
+	parsed, err := name.ParseReference(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writeRaw(t, store, resolveIdentifier(parsed, hostPlatform().String()), mustJSON(t, rec))
+}
+
+// writeRaw stores raw bytes under identifier, replacing whatever it held.
+func writeRaw(t *testing.T, store Cache, identifier string, raw []byte) {
+	t.Helper()
+
+	if err := store.Invalidate(identifier); err != nil {
+		t.Fatal(err)
+	}
+
+	pin, err := store.AcquireFile(identifier, nil, func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(raw)), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = pin.Release()
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return raw
+}
+
+func TestResolvePinnedRefVerifiesTheChain(t *testing.T) {
+	t.Parallel()
+
+	cache, err := openCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = cache.Close() }()
+
+	fixture := newPinnedFixture(t)
+
+	// Pinned to the index: verified through Index → Manifest → ConfigBlob.
+	viaIndex := "example.com/pinned@" + fixture.idxDigest
+	writeRecord(t, cache, viaIndex, fixture.record)
+
+	for _, pull := range []string{PullNever, PullMissing} {
+		got, err := Resolve(t.Context(), cache, viaIndex, "", pull)
+		if err != nil {
+			t.Fatalf("Resolve(%s, pinned to index) = %v", pull, err)
+		}
+
+		if "sha256:"+got.Digest != fixture.imgDigest {
+			t.Fatalf("Resolve(%s) digest = %s, want %s", pull, got.Digest, fixture.imgDigest)
+		}
+	}
+
+	// Pinned to the manifest itself: no Index in the chain.
+	direct := "example.com/pinned@" + fixture.imgDigest
+	rec := fixture.record
+	rec.Index = nil
+	writeRecord(t, cache, direct, rec)
+
+	if _, err := Resolve(t.Context(), cache, direct, "", PullNever); err != nil {
+		t.Fatalf("Resolve(pinned to manifest) = %v", err)
+	}
+}
+
+func TestResolvePinnedRefRefusesAnAlteredRecord(t *testing.T) {
+	t.Parallel()
+
+	cache, err := openCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = cache.Close() }()
+
+	fixture := newPinnedFixture(t)
+	other := newPinnedFixture(t)
+	ref := "example.com/pinned@" + fixture.idxDigest
+
+	for label, alter := range map[string]func(*resolution){
+		// The digest field points elsewhere while the bytes still hash: caught
+		// by Digest ≠ sha256(Manifest).
+		"digest swapped": func(r *resolution) { r.Digest = other.imgDigest },
+		// Whole chain swapped for another image's: sha256(Index) ≠ the ref.
+		"index swapped": func(r *resolution) {
+			r.Index, r.Manifest, r.ConfigBlob, r.Digest = other.record.Index, other.record.Manifest, other.record.ConfigBlob, other.imgDigest
+		},
+		// Manifest from another image under the right index: the index does not list it.
+		"manifest swapped": func(r *resolution) { r.Manifest, r.Digest = other.record.Manifest, other.imgDigest },
+		// The config (entrypoint, env, user — what the container runs with)
+		// replaced: the manifest's config digest no longer matches.
+		"config swapped": func(r *resolution) { r.ConfigBlob = other.record.ConfigBlob },
+		"config edited": func(r *resolution) {
+			r.ConfigBlob = append([]byte(`{"config":{"Entrypoint":["/evil"]},"x":`), r.ConfigBlob[1:]...)
+		},
+	} {
+		rec := fixture.record
+		alter(&rec)
+		writeRecord(t, cache, ref, rec)
+
+		for _, pull := range []string{PullNever, PullMissing} {
+			if _, err := Resolve(t.Context(), cache, ref, "", pull); !errors.Is(err, ErrResolve) {
+				t.Errorf("%s, Resolve(%s) = %v, want ErrResolve", label, pull, err)
+			}
+		}
+	}
+}
+
+func TestResolvePinnedRefWithoutChainNeedsARePull(t *testing.T) {
+	t.Parallel()
+
+	cache, err := openCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = cache.Close() }()
+
+	fixture := newPinnedFixture(t)
+
+	// A record from before the chain was kept: digest and config only.
+	legacy := resolution{Digest: fixture.imgDigest, Config: fixture.record.Config}
+
+	// Pinned ref: never refuses and says how to fix it (missing would go to
+	// the registry, which a unit test cannot).
+	pinned := "example.com/pinned@" + fixture.idxDigest
+	writeRecord(t, cache, pinned, legacy)
+
+	_, err = Resolve(t.Context(), cache, pinned, "", PullNever)
+	if !errors.Is(err, ErrResolve) || !strings.Contains(err.Error(), "--pull=always") {
+		t.Fatalf("Resolve(never, unchained pinned record) = %v, want ErrResolve naming --pull=always", err)
+	}
+
+	// A tag is not pinned to anything: the same legacy record still serves it.
+	tag := "example.com/pinned:dev"
+	writeRecord(t, cache, tag, legacy)
+
+	got, err := Resolve(t.Context(), cache, tag, "", PullNever)
+	if err != nil || "sha256:"+got.Digest != fixture.imgDigest {
+		t.Fatalf("Resolve(never, tag with legacy record) = (%v, %v)", got, err)
 	}
 }
 
@@ -222,7 +479,7 @@ func TestResolveUnknownPullPolicyErrors(t *testing.T) {
 
 	// The policy is validated before anything else, so no cache (nil) and no
 	// network are ever touched.
-	_, err := Resolve(context.Background(), nil, "debian", "", "sometimes")
+	_, err := Resolve(t.Context(), nil, "debian", "", "sometimes")
 	if !errors.Is(err, ErrResolve) {
 		t.Fatalf("Resolve(pull=sometimes) = %v, want ErrResolve", err)
 	}
@@ -276,44 +533,106 @@ func TestCanonicalPlatform(t *testing.T) {
 	}
 }
 
-func TestResolveCacheKeyNormalization(t *testing.T) {
+func TestResolveIdentifierNormalization(t *testing.T) {
 	t.Parallel()
 
-	short, err := resolveCacheFileName("debian", "linux/arm64")
+	identifierOf := func(ref, platform string) string {
+		parsed, err := name.ParseReference(ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return resolveIdentifier(parsed, platform)
+	}
+
+	short := identifierOf("debian", "linux/arm64")
+
+	if full := identifierOf("docker.io/library/debian:latest", "linux/arm64"); full != short {
+		t.Fatalf("equivalent refs map to different identifiers: %q vs %q", short, full)
+	}
+
+	if other := identifierOf("debian", "linux/amd64"); other == short {
+		t.Fatal("different platforms map to the same identifier")
+	}
+
+	if tagged := identifierOf("debian:bookworm", "linux/arm64"); tagged == short {
+		t.Fatal("different tags map to the same identifier")
+	}
+
+	if !strings.HasSuffix(short, "|"+recordGeneration) {
+		t.Fatalf("identifier %q does not carry the record generation", short)
+	}
+}
+
+func TestImportResolvesOfflineAndFlattens(t *testing.T) {
+	t.Parallel()
+
+	cache, err := openCache(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	full, err := resolveCacheFileName("docker.io/library/debian:latest", "linux/arm64")
+	defer func() { _ = cache.Close() }()
+
+	source, err := random.Image(bytesize.KiB, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if short != full {
-		t.Fatalf("equivalent refs map to different cache files: %q vs %q", short, full)
-	}
-
-	// A different platform must be a different entry.
-	other, err := resolveCacheFileName("debian", "linux/amd64")
+	wantDigest, err := source.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if other == short {
-		t.Fatal("different platforms map to the same cache file")
+	const ref = "example.com/built/locally:dev"
+
+	imported, err := Import(cache, ref, "", source)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
 	}
 
-	// A different tag must be a different entry.
-	tagged, err := resolveCacheFileName("debian:bookworm", "linux/arm64")
+	if imported.Digest != wantDigest.Hex {
+		t.Fatalf("Import digest = %s, want %s", imported.Digest, wantDigest.Hex)
+	}
+
+	// The imported image flattens straight from its in-memory source.
+	blob := readPin(t, mustRootfsFile(t, imported))
+	if len(blob) == 0 || len(blob)%512 != 0 {
+		t.Fatalf("imported rootfs is %d bytes", len(blob))
+	}
+
+	// After Import the tag resolves OFFLINE (never touches a registry) under
+	// both pull policies that consult the local record, and serves the same
+	// cached blob.
+	for _, pull := range []string{PullNever, PullMissing} {
+		var resolved *Image
+
+		if resolved, err = Resolve(t.Context(), cache, ref, "", pull); err != nil {
+			t.Fatalf("Resolve(%s) after Import: %v", pull, err)
+		}
+
+		if resolved.Digest != wantDigest.Hex {
+			t.Fatalf("Resolve(%s) digest = %s, want %s", pull, resolved.Digest, wantDigest.Hex)
+		}
+
+		if again := readPin(t, mustRootfsFile(t, resolved)); !bytes.Equal(again, blob) {
+			t.Fatalf("Resolve(%s) serves a different rootfs than Import produced", pull)
+		}
+	}
+
+	// A resolved-from-record local image whose blob is gone cannot be re-fetched:
+	// the error must say "rebuild", not try a registry.
+	resolved, err := Resolve(t.Context(), cache, ref, "", PullMissing)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if tagged == short {
-		t.Fatal("different tags map to the same cache file")
+	if _, err := resolved.resolveSource(); !errors.Is(err, ErrCache) || !strings.Contains(err.Error(), "rebuild") {
+		t.Fatalf("local image re-fetch = %v, want ErrCache asking for a rebuild", err)
 	}
 
-	if _, err := resolveCacheFileName("UPPER not a ref!!", "linux/arm64"); !errors.Is(err, ErrResolve) {
-		t.Fatalf("invalid ref = %v, want ErrResolve", err)
+	// Import refuses an unparsable ref before touching anything.
+	if _, err := Import(cache, "UPPER not a ref!!", "", source); !errors.Is(err, ErrResolve) {
+		t.Fatalf("Import(bad ref) = %v, want ErrResolve", err)
 	}
 }
