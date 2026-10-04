@@ -34,6 +34,13 @@ KURL='https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.1.3.tar.xz'
 
 # The whole workload, run in the container rootfs (/tmp), no mount. Build only
 # `vmlinux` (kernel image, no modules) to keep each run bounded (~minutes).
+#
+# The apt packages are deliberately unpinned, as in hack/bench-kernel/Dockerfile.
+# The bench compares runtimes within one invocation, and every runtime gets the
+# same toolchain from the same mirror in the same session. Results from
+# different days may differ by a debian point release; compare those with that
+# in mind. Pinning versions breaks on every point release, and a snapshot.debian.org
+# date would put that slow archive inside the timed run.
 WORKLOAD='set -e
 apt-get update -qq >/dev/null 2>&1
 apt-get install -y -qq --no-install-recommends build-essential bc bison flex \
