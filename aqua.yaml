@@ -17,8 +17,6 @@ registries:
     path: .limen/aqua-registry.yaml
 
 packages:
-  # --- go install tools (local registry, GOSUMDB-verified) ---
-  # Pseudo-version: the nested cmd/dot module carries no tags upstream.
   # --- farcloser tools (local registry; standard once registered upstream) ---
   - name: farcloser/limen@v0.6.2 # renovate: depName=farcloser/limen
     registry: local
