@@ -141,7 +141,7 @@ Each edit is marked `OSSEIN FORK` in the source.
 
 ## What was stripped, and why
 
-Roughly 14,000 lines became ~7,500 (100 files to 58). Removed:
+Roughly 14,000 lines became ~7,500 (100 files to 56). Removed:
 
 - **macOS guests entirely** — `MacPlatformConfiguration`, hardware models,
   machine identifiers, auxiliary storage, restore images, the installer and
@@ -156,7 +156,14 @@ Roughly 14,000 lines became ~7,500 (100 files to 58). Removed:
 - **Unused vmnet surface** — `fileadapter/`, `pktdesc`, the `vmnet_interface`
   lifecycle and packet-IO bindings, xpc serialization. ossein binds network
   creation, subnet readback, and the attachment.
-- **Save/restore machine state**, tests, examples, `cmd/`, `testdata/`.
+- **Save/restore machine state**, tests, examples, `cmd/`, `testdata/`, and
+  the `Makefile` that drove them: its targets ran the removed tests through
+  the removed `cmd/codesign`, fetched a test kernel into the removed
+  `testdata/`, and installed `stringer` at `@latest`. Its one live target
+  ran `clang-format -i` over the `.h` and `.m` files; `.clang-format` stays
+  for that. The `go:generate` lines stay as upstream wrote them: the
+  generated `*_string.go` files are carried, so nothing here needs
+  `stringer` to build.
 
 What remains was checked for reachability WITHIN this package: no declaration
 is orphaned. That is a weaker bar than "ossein uses it", and the difference is
