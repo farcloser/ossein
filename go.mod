@@ -19,7 +19,7 @@ require (
 	github.com/mdlayher/vsock v1.3.0
 	github.com/moby/buildkit v0.33.1
 	github.com/moby/sys/capability v0.4.0
-	github.com/mycophonic/primordium v0.10.1
+	github.com/mycophonic/primordium v0.11.0
 	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/tonistiigi/fsutil v0.0.0-20260819142231-83cac42c1c52
 	github.com/vishvananda/netlink v1.3.1
@@ -58,8 +58,8 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/in-toto/attestation v1.2.0 // indirect
 	github.com/in-toto/in-toto-golang v0.11.0 // indirect
-	github.com/klauspost/compress v1.20.0 // indirect
-	github.com/lmittmann/tint v1.2.0 // indirect
+	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/lmittmann/tint v1.2.1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mdlayher/socket v0.7.0 // indirect
 	github.com/moby/locker v1.0.1 // indirect
