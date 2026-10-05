@@ -233,8 +233,8 @@ initfs:
 # Regenerate the Connect tree from the vendored proto (see proto/PIN). ONE proto, ONE
 # output tree (internal/sandbox), imported by both the host client (pkg/guest) and
 # the guest server (guest/internal/guestagent) — so there is no copy to keep in sync.
-# The generated files are project-formatted (.golangci.yml sets
-# formatters.exclusions.generated: disable), hence the trailing fmt.
+# The generated files are project-formatted (the Go lint baseline, .limen/lint-go.yaml,
+# sets formatters.exclusions.generated: disable), hence the trailing fmt.
 proto:
     #!/usr/bin/env bash
     set -euo pipefail

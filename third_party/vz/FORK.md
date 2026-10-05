@@ -128,7 +128,7 @@ Each edit is marked `OSSEIN FORK` in the source.
 
    `internal/sliceutil` went too — `watchDisconnected` was its only caller.
    `go-infinity-channel` left `go.mod` and depguard's allowlist in
-   `.golangci.yml`.
+   `.lint-go.yaml`.
 6. **Whitespace normalized.** `just lint` runs `git-validation`'s
    `dangling-whitespace` rule over every commit, and it has no path
    exclusions: vendored code is held to the same rule as ossein's own. As
@@ -201,7 +201,7 @@ long-lived. If it does land in a release:
    `github.com/farcloser/ossein/third_party/vz` with
    `github.com/Code-Hex/vz/v3`
 2. `go get github.com/Code-Hex/vz/v3@<release>` and restore it to depguard's
-   allowlist in `.golangci.yml`. Note upstream will bring back
+   allowlist in `.lint-go.yaml`. Note upstream will bring back
    `go-infinity-channel`, removed here by change 5
 3. delete `third_party/vz`, then `just lint && just test`
 
@@ -222,7 +222,7 @@ then re-strip, or keep upstream whole if the surface has become wanted.
 - upstream: https://github.com/Code-Hex/vz
 - PR: https://github.com/Code-Hex/vz/pull/205, vendored at head `e27a5fb`
 - LICENSE (MIT) retained unmodified
-- `.golangci.yml` excludes this tree from lint and formatting: it is held as
+- `.lint-go.yaml` excludes this tree from lint and formatting: it is held as
   close to upstream as possible so the diff stays readable
 - the vendored code's import paths were rewritten from
   `github.com/Code-Hex/vz/v3/...` to `github.com/farcloser/ossein/third_party/vz/...`;
