@@ -14,12 +14,12 @@ require (
 	connectrpc.com/connect v1.21.0
 	github.com/alecthomas/kong v1.16.1
 	github.com/diskfs/go-diskfs v1.9.4
-	github.com/forkcloser/erofs v1.0.0
+	github.com/forkcloser/erofs v1.0.1
 	github.com/google/go-containerregistry v0.22.1
 	github.com/mdlayher/vsock v1.3.0
 	github.com/moby/buildkit v0.33.1
 	github.com/moby/sys/capability v0.4.0
-	github.com/mycophonic/primordium v0.11.0
+	github.com/mycophonic/primordium v0.11.1
 	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/tonistiigi/fsutil v0.0.0-20260819142231-83cac42c1c52
 	github.com/vishvananda/netlink v1.3.1
@@ -49,7 +49,7 @@ require (
 	github.com/docker/docker-credential-helpers v0.9.9 // indirect
 	github.com/elliotwutingfeng/asciiset v0.0.0-20260801111138-45c5fff54b41 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
-	github.com/forkcloser/blake3 v1.0.0 // indirect
+	github.com/forkcloser/blake3 v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gofrs/flock v0.13.1 // indirect

@@ -72,10 +72,10 @@ github.com/elliotwutingfeng/asciiset v0.0.0-20260801111138-45c5fff54b41 h1:k6IHO
 github.com/elliotwutingfeng/asciiset v0.0.0-20260801111138-45c5fff54b41/go.mod h1:GLo/8fDswSAniFG+BFIaiSPcK610jyzgEhWYPQwuQdw=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=
 github.com/felixge/httpsnoop v1.1.0/go.mod h1:Zqxgdd+1Rkcz8euOqdr7lqgCRJztwr5hp9vDSi5UZCE=
-github.com/forkcloser/blake3 v1.0.0 h1:w2N6B7EmLZl31OiPpl7kqgKiknJoot3xfc6qirNZIaQ=
-github.com/forkcloser/blake3 v1.0.0/go.mod h1:yl3AyBunlxsVVNqNMvTEE9D6C1Hk0RzMlT1sEJrv5Ds=
-github.com/forkcloser/erofs v1.0.0 h1:G/9X7RKG//AINZ0vfJQE0Efnk3Y8T5zcex0Diy1Julw=
-github.com/forkcloser/erofs v1.0.0/go.mod h1:XodLxqIPBoNL9SURdf/oNs9Lo5mazNp9H5481Y0nCf0=
+github.com/forkcloser/blake3 v1.0.1 h1:ol94agsGVUs1srexJxb4jUSrXHdA3thPyrfuAVGhi5I=
+github.com/forkcloser/blake3 v1.0.1/go.mod h1:yl3AyBunlxsVVNqNMvTEE9D6C1Hk0RzMlT1sEJrv5Ds=
+github.com/forkcloser/erofs v1.0.1 h1:aUs3YoLud1qTU3DdWVwE1K+Fkj2xNMX4Yi+zfrKvk9o=
+github.com/forkcloser/erofs v1.0.1/go.mod h1:XodLxqIPBoNL9SURdf/oNs9Lo5mazNp9H5481Y0nCf0=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
 github.com/go-logr/logr v1.4.4 h1:tG4xh9yMsRCAiodLVTxyrkzSZ9+o0L1Kg/+cPVcbP/8=
 github.com/go-logr/logr v1.4.4/go.mod h1:9T104GzyrTigFIr8wt5mBrctHMim0Nb2HLGrmQ40KvY=
@@ -135,8 +135,8 @@ github.com/moby/sys/userns v0.2.0 h1:nEtDtp7NCV/6dutSklNe8FrENPwFdc4mXnZqC/JWgXM
 github.com/moby/sys/userns v0.2.0/go.mod h1:IHUYgu/kao6N8YZlp9Cf444ySSvCmDlmzUcYfDHOl28=
 github.com/morikuni/aec v1.1.0 h1:vBBl0pUnvi/Je71dsRrhMBtreIqNMYErSAbEeb8jrXQ=
 github.com/morikuni/aec v1.1.0/go.mod h1:xDRgiq/iw5l+zkao76YTKzKttOp2cwPEne25HDkJnBw=
-github.com/mycophonic/primordium v0.11.0 h1:wD6mz4UJkwtl44waIwUIiXb+wBJxadZDxuofzKGJ7iw=
-github.com/mycophonic/primordium v0.11.0/go.mod h1:d6B42nJ2icSr3b417YHblDuweH5iM60jqlV1OSPRz3Q=
+github.com/mycophonic/primordium v0.11.1 h1:QZsDEO3DRnFXyuDBSdvKm7S4QPdv1bosRmdVS/Xca0Y=
+github.com/mycophonic/primordium v0.11.1/go.mod h1:hc47mZUgZSBt7YDpDGhxY0QC1+EW6+0wdj6J0bwKYlE=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
