@@ -8,7 +8,7 @@
 // netlink, capability) never reach the host binary and vz never reaches the guest.
 module github.com/farcloser/ossein
 
-go 1.27.0
+go 1.26.8
 
 require (
 	connectrpc.com/connect v1.21.0
