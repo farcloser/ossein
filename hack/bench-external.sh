@@ -46,7 +46,7 @@ CCPUS=$((CPUS - 1))          # apple-container runs requested+1 vCPUs (extra mgm
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 B="$HERE/build"
-IMG="docker.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171"
+IMG="docker.io/library/debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
 
 # Podman: rootless podman machine (shared-VM, like Orb/Docker). Uses its default
 # connection; override natively with CONTAINER_HOST=unix://... if you must.
