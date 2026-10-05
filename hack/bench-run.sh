@@ -29,7 +29,7 @@ CPUSET="0-$((CPUS - 1))"
 CCPUS=$((CPUS - 1))
 MEM=8192                                   # MiB for per-VM runtimes (kernel objects are big)
 
-BASE='debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171'
+BASE='debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251'
 KURL='https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.1.3.tar.xz'
 
 # The whole workload, run in the container rootfs (/tmp), no mount. Build only
