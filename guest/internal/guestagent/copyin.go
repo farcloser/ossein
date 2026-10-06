@@ -44,6 +44,16 @@ type RootfsJob struct {
 	err    error
 }
 
+// rootfsDest is the container rootfs this VM materializes, or "" without a
+// rootfs plan.
+func (a *Agent) rootfsDest() string {
+	if a.rootfs == nil {
+		return ""
+	}
+
+	return a.rootfs.dest
+}
+
 // BeginRootfsMaterialization reads the ossein.rootfs=<device>:<dest>:<opts>
 // kernel parameter and, when present, starts materializing the rootfs in the
 // background. Returns nil when the cmdline carries no plan (a VM booted for

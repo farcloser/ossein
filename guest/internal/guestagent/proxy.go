@@ -6,11 +6,14 @@ import (
 	"context"
 	"io"
 	"net"
+	"strings"
 	"sync"
 
 	"connectrpc.com/connect"
 	"github.com/mdlayher/vsock"
+	"golang.org/x/sys/unix"
 
+	"github.com/farcloser/ossein/guest/internal/rootpath"
 	pb "github.com/farcloser/ossein/internal/sandbox"
 )
 
@@ -39,7 +42,7 @@ func (a *Agent) ProxyVsock(_ context.Context, req *pb.ProxyVsockRequest) (*pb.Pr
 		// The proxy deliberately outlives this RPC, so its backend dials use
 		// context.Background() instead of the RPC context (see proxyOutOf).
 		//nolint:contextcheck // see above
-		listener, err = proxyOutOf(req)
+		listener, err = proxyOutOf(req, a.rootfsDest())
 	case pb.ProxyVsockRequest_INTO:
 		return nil, rpcErrorf(connect.CodeUnimplemented, "INTO proxying is not supported")
 	default:
@@ -78,23 +81,53 @@ func (a *Agent) StopVsockProxy(_ context.Context, req *pb.StopVsockProxyRequest)
 // proxyOutOf listens on the vsock port and forwards each accepted connection to
 // the guest unix socket. The unix socket is dialed lazily (per connection), so
 // the backend need not exist yet when the proxy is created.
-func proxyOutOf(req *pb.ProxyVsockRequest) (net.Listener, error) {
+func proxyOutOf(req *pb.ProxyVsockRequest, rootfs string) (net.Listener, error) {
 	listener, err := vsock.Listen(req.GetVsockPort(), nil)
 	if err != nil {
 		return nil, rpcErrorf(connect.CodeInternal, "vsock listen :%d: %v", req.GetVsockPort(), err)
 	}
 
-	guestPath := req.GetGuestPath()
-
-	// The proxy outlives the RPC that created it, so the backend dial must not
-	// inherit the RPC context; Background matches the listener's lifetime.
-	dialer := &net.Dialer{}
-
-	go acceptAndProxy(listener, func() (net.Conn, error) {
-		return dialer.DialContext(context.Background(), "unix", guestPath)
-	})
+	go acceptAndProxy(listener, backendDialer(req.GetGuestPath(), rootfs))
 
 	return listener, nil
+}
+
+// backendDialer dials guestPath, once per connection. A socket under the
+// container rootfs is image-controlled, and the running container can still
+// replace what sits at its path: it is resolved inside the rootfs on every
+// dial and reached through its fd, so a symlink there cannot redirect the dial
+// onto one of the VM's own sockets. A path outside the rootfs comes from the
+// host and is dialed as given.
+//
+// The proxy outlives the RPC that created it, so the dial does not inherit the
+// RPC context; Background matches the listener's lifetime.
+func backendDialer(guestPath, rootfs string) func() (net.Conn, error) {
+	dialer := &net.Dialer{}
+
+	rel, inRootfs := strings.CutPrefix(guestPath, rootfs+"/")
+	if rootfs == "" || !inRootfs {
+		return func() (net.Conn, error) {
+			return dialer.DialContext(context.Background(), "unix", guestPath)
+		}
+	}
+
+	return func() (net.Conn, error) {
+		root, err := rootpath.Open(rootfs)
+		if err != nil {
+			return nil, err
+		}
+
+		defer func() { _ = root.Close() }()
+
+		socket, err := root.OpenPath(rel)
+		if err != nil {
+			return nil, err
+		}
+
+		defer func() { _ = unix.Close(socket) }()
+
+		return dialer.DialContext(context.Background(), "unix", rootpath.ProcFDPath(socket))
+	}
 }
 
 // acceptAndProxy accepts on listener until it is closed, piping each front-side

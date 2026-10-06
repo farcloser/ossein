@@ -13,6 +13,7 @@ import (
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 
+	"github.com/farcloser/ossein/guest/internal/rootpath"
 	pb "github.com/farcloser/ossein/internal/sandbox"
 )
 
@@ -159,13 +160,13 @@ func (*Agent) ConfigureHosts(_ context.Context, req *pb.ConfigureHostsRequest) (
 // writeRootfsFile writes content to <location>/<rel>, creating parent dirs.
 //
 // The rootfs is image-controlled, so this is the same containment problem the
-// extractor has and it gets the same answer: rootPath resolves the parents
+// extractor has and it gets the same answer: rootpath resolves the parents
 // through the kernel (RESOLVE_IN_ROOT), and the final component is replaced
 // rather than followed. Without that, an image shipping etc/resolv.conf as a
 // symlink to an absolute guest path made the agent write there as root — the
 // container was then left with a dangling link and no DNS.
 func writeRootfsFile(location, rel, content string) error {
-	confined, err := openRoot(location)
+	confined, err := rootpath.Open(location)
 	if err != nil {
 		return err
 	}
@@ -177,7 +178,7 @@ func writeRootfsFile(location, rel, content string) error {
 	}
 
 	if target == "" {
-		return fmt.Errorf("%w: %q names the rootfs itself", errPathEscapes, rel)
+		return fmt.Errorf("%w: %q names the rootfs itself", rootpath.ErrPathEscapes, rel)
 	}
 
 	// Replace, never follow: a symlink sitting at the destination must not

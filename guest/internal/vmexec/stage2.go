@@ -16,6 +16,8 @@ import (
 	"github.com/mdlayher/vsock"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"golang.org/x/sys/unix"
+
+	"github.com/farcloser/ossein/guest/internal/rootpath"
 )
 
 // Child fd numbers shared with the agent (order matches the agent's ExtraFiles).
@@ -334,18 +336,29 @@ func setupRootfs(spec *specs.Spec) error {
 		return fmt.Errorf("bind rootfs: %w", err)
 	}
 
+	// Everything below the pivot runs against image-controlled paths, before
+	// the workload is confined to them: each is resolved inside the rootfs, so
+	// an image symlink ("data -> /sbin") cannot send a mount or a device node
+	// onto the VM's own tree. Opened after the self-bind, so the walks see it.
+	confined, err := rootpath.Open(root)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = confined.Close() }()
+
 	for _, m := range spec.Mounts {
-		if err := mountInto(root, m); err != nil {
+		if err := mountInto(confined, m); err != nil {
 			return fmt.Errorf("mount %s: %w", m.Destination, err)
 		}
 	}
 
-	if err := makeDevNodes(root); err != nil {
+	if err := makeDevNodes(confined); err != nil {
 		return err
 	}
 
-	configureConsole(root)
-	setDevSymlinks(root)
+	configureConsole(confined)
+	setDevSymlinks(confined)
 
 	if err := pivotRoot(root); err != nil {
 		return err
@@ -360,17 +373,20 @@ func setupRootfs(spec *specs.Spec) error {
 	return reOpenDevNull()
 }
 
-func mountInto(root string, mnt specs.Mount) error {
-	target := filepath.Join(root, mnt.Destination)
-	// 0o755 is the standard mode for container mountpoint directories; the
-	// workload must be able to traverse them (0o750 would break non-root users).
-	if err := os.MkdirAll(target, stdDirMode); err != nil {
-		return fmt.Errorf("mkdir mountpoint: %w", err)
+// mountInto mounts onto the target's fd, through its magic link: the mount
+// lands on the directory resolved inside the rootfs, never on whatever a path
+// walk from the VM's root would reach.
+func mountInto(root *rootpath.Root, mnt specs.Mount) error {
+	target, err := root.Dir(mnt.Destination)
+	if err != nil {
+		return fmt.Errorf("mountpoint: %w", err)
 	}
+
+	defer func() { _ = unix.Close(target) }()
 
 	flags, data := ParseMountOptions(mnt.Options)
 
-	if err := unix.Mount(mnt.Source, target, mnt.Type, flags, data); err != nil {
+	if err := unix.Mount(mnt.Source, rootpath.ProcFDPath(target), mnt.Type, flags, data); err != nil {
 		return fmt.Errorf("mount %s (%s): %w", mnt.Source, mnt.Type, err)
 	}
 
@@ -386,7 +402,14 @@ const devNodeMode = 0o666
 // below, stay namespace-local instead of mutating the VM's real /dev. Runs
 // before the capability drop, so CAP_MKNOD is available. Nodes that already
 // exist (e.g. a rootfs shipping its own) are kept.
-func makeDevNodes(root string) error {
+func makeDevNodes(root *rootpath.Root) error {
+	dev, err := root.Dir("dev")
+	if err != nil {
+		return fmt.Errorf("/dev: %w", err)
+	}
+
+	defer func() { _ = unix.Close(dev) }()
+
 	nodes := []struct {
 		name  string
 		major uint32
@@ -401,15 +424,15 @@ func makeDevNodes(root string) error {
 	}
 
 	for _, node := range nodes {
-		path := filepath.Join(root, "dev", node.name)
-		if _, err := os.Lstat(path); err == nil {
+		var stat unix.Stat_t
+		if unix.Fstatat(dev, node.name, &stat, unix.AT_SYMLINK_NOFOLLOW) == nil {
 			continue
 		}
 
 		// Mkdev of these fixed single-digit major/minor pairs is far below any
 		// integer boundary; the int conversion cannot overflow.
-		dev := unix.Mkdev(node.major, node.minor)
-		if err := unix.Mknod(path, unix.S_IFCHR|devNodeMode, int(dev)); err != nil { // #nosec G115 -- see above
+		number := int(unix.Mkdev(node.major, node.minor)) // #nosec G115 -- see above
+		if err := unix.Mknodat(dev, node.name, unix.S_IFCHR|devNodeMode, number); err != nil {
 			return fmt.Errorf("mknod /dev/%s: %w", node.name, err)
 		}
 	}
@@ -419,22 +442,35 @@ func makeDevNodes(root string) error {
 
 // configureConsole replaces the devpts-provided /dev/ptmx with the standard
 // symlink to pts/ptmx, so opening /dev/ptmx uses the container's devpts.
-func configureConsole(root string) {
-	ptmx := filepath.Join(root, "dev", "ptmx")
-	_ = os.Remove(ptmx)
-	_ = os.Symlink("pts/ptmx", ptmx)
+func configureConsole(root *rootpath.Root) {
+	dev, err := root.Dir("dev")
+	if err != nil {
+		return
+	}
+
+	defer func() { _ = unix.Close(dev) }()
+
+	_ = unix.Unlinkat(dev, "ptmx", 0)
+	_ = unix.Symlinkat("pts/ptmx", dev, "ptmx")
 }
 
-func setDevSymlinks(root string) {
+func setDevSymlinks(root *rootpath.Root) {
+	dev, err := root.Dir("dev")
+	if err != nil {
+		return
+	}
+
+	defer func() { _ = unix.Close(dev) }()
+
 	links := [][2]string{
-		{"/proc/self/fd", "/dev/fd"},
-		{"/proc/self/fd/0", "/dev/stdin"},
-		{"/proc/self/fd/1", "/dev/stdout"},
-		{"/proc/self/fd/2", "/dev/stderr"},
-		{"/dev/rtc0", "/dev/rtc"},
+		{"/proc/self/fd", "fd"},
+		{"/proc/self/fd/0", "stdin"},
+		{"/proc/self/fd/1", "stdout"},
+		{"/proc/self/fd/2", "stderr"},
+		{"/dev/rtc0", "rtc"},
 	}
 	for _, l := range links {
-		_ = os.Symlink(l[0], filepath.Join(root, l[1])) // best-effort; skip if present
+		_ = unix.Symlinkat(l[0], dev, l[1]) // best-effort; skip if present
 	}
 }
 
