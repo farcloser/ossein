@@ -7,9 +7,9 @@ pins:
   - name: guest-kernel
     renovate: github-releases farcloser/ossein-kernel
     versioning: regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)-ossein\.(?<build>\d+)$
-    version: 7.2.6-ossein.1
+    version: 7.2.9-ossein.1
     url: https://github.com/farcloser/ossein-kernel/releases/download/${version}/kernel-arm64
     verify: cosign-sha256sums https://github.com/farcloser/ossein-kernel/releases/download/${version}/SHA256SUMS https://github.com/farcloser/ossein-kernel/releases/download/${version}/SHA256SUMS.cosign.bundle ^(142371135\+[^@]+@users\.noreply\.github\.com|apostasie@farcloser\.world)$ https://github.com/login/oauth
     digest:
-      version: 7.2.6-ossein.1
-      sha256: 6d600c557856fad493a364c3345e3594b3994591b72459c21b79847dbbd8bb6d
+      version: 7.2.9-ossein.1
+      sha256: 347363194b7685ec98d20d68c3055ee820b1c244f4cec62bacbbd6ed64311617
