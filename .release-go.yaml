@@ -72,4 +72,4 @@ release:
   replace_existing_artifacts: true
 
 changelog:
-  sort: asc
+  use: github-native
