@@ -3,9 +3,13 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/mycophonic/primordium/filesystem/pathcheck"
 )
 
 func TestParseVolumeDirectoryBind(t *testing.T) {
@@ -91,5 +95,21 @@ func TestParseVolumeRejectsUnsupportedForms(t *testing.T) {
 		if _, err := parseVolume(spec); err == nil {
 			t.Errorf("%s (%q): expected error, got nil", name, spec)
 		}
+	}
+}
+
+func TestParseVolumeRefusesInvalidSource(t *testing.T) {
+	t.Parallel()
+
+	// Refused before the stat, so nothing is created on the way.
+	parent := filepath.Join(t.TempDir(), "parent")
+
+	_, err := parseVolume(filepath.Join(parent, strings.Repeat("a", 256)) + ":/work")
+	if !errors.Is(err, errUsage) || !errors.Is(err, pathcheck.ErrInvalidPath) {
+		t.Fatalf("over-long source component = %v, want errUsage wrapping ErrInvalidPath", err)
+	}
+
+	if _, err = os.Stat(parent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused source must create nothing, stat(%s) = %v", parent, err)
 	}
 }

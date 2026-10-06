@@ -3,9 +3,13 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/mycophonic/primordium/filesystem/pathcheck"
 )
 
 func TestLooksLikePath(t *testing.T) {
@@ -86,5 +90,15 @@ func TestResolveCacheDir(t *testing.T) {
 	dir, local, err = cmd.resolveCacheDir()
 	if err != nil || dir != tmp || !local {
 		t.Fatalf("abs path: got (%q, %v, %v), want (%q, true, nil)", dir, local, err, tmp)
+	}
+}
+
+func TestResolveCacheDirRefusesInvalidPath(t *testing.T) {
+	t.Parallel()
+
+	// A project-local cache is created at the path: refused before that.
+	cmd := &buildkitCmd{Cache: filepath.Join(t.TempDir(), strings.Repeat("a", 256))}
+	if _, _, err := cmd.resolveCacheDir(); !errors.Is(err, errUsage) || !errors.Is(err, pathcheck.ErrInvalidPath) {
+		t.Fatalf("over-long --cache component = %v, want errUsage wrapping ErrInvalidPath", err)
 	}
 }

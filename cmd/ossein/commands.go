@@ -23,6 +23,7 @@ import (
 	"github.com/mycophonic/primordium/bytesize"
 	"github.com/mycophonic/primordium/filesystem"
 	"github.com/mycophonic/primordium/filesystem/dirs"
+	"github.com/mycophonic/primordium/filesystem/pathcheck"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 
@@ -138,14 +139,14 @@ type runCmd struct {
 	User string `help:"numeric uid[:gid]"`
 	// sep:"none": kong would otherwise split every value on commas, and
 	// `-e LIST=a,b` is an ordinary environment variable.
-	Env        []string `help:"set environment variables: KEY=VALUE, or bare KEY to pass through from the host (repeatable)" sep:"none"                                  short:"e"`
-	EnvFile    []string `help:"read environment variables from a file (docker --env-file, repeatable)"                       name:"env-file"                             sep:"none"`
-	Platform   string   `help:"linux/amd64 | linux/arm64 (default: host; amd64 runs via Rosetta)"`
-	Pull       string   `default:"missing"                                                                                   enum:"always,missing,never"                 help:"pull policy: always | missing | never (missing skips the registry when the image is already local)" name:"pull"`
-	ConsoleLog string   `help:"guest console log file"                                                                       name:"console-log"`
-	Volume     []string `help:"docker -v bind mount: host-dir:dest[:options] (repeatable)"                                   name:"volume"                               sep:"none"                                                                                                short:"v"`
-	Image      string   `arg:""                                                                                              help:"image reference"`
-	Command    []string `arg:""                                                                                              help:"command + args (overrides image CMD)" optional:""                                                                                               passthrough:""`
+	Env        []string   `help:"set environment variables: KEY=VALUE, or bare KEY to pass through from the host (repeatable)" sep:"none"                                  short:"e"`
+	EnvFile    []string   `help:"read environment variables from a file (docker --env-file, repeatable)"                       name:"env-file"                             sep:"none"`
+	Platform   string     `help:"linux/amd64 | linux/arm64 (default: host; amd64 runs via Rosetta)"`
+	Pull       string     `default:"missing"                                                                                   enum:"always,missing,never"                 help:"pull policy: always | missing | never (missing skips the registry when the image is already local)" name:"pull"`
+	ConsoleLog consoleLog `embed:""`
+	Volume     []string   `help:"docker -v bind mount: host-dir:dest[:options] (repeatable)"                                   name:"volume"                               sep:"none"                                                                                                short:"v"`
+	Image      string     `arg:""                                                                                              help:"image reference"`
+	Command    []string   `arg:""                                                                                              help:"command + args (overrides image CMD)" optional:""                                                                                               passthrough:""`
 }
 
 // parseVolume parses a docker-style `-v`/`--volume` spec but supports ONLY the
@@ -164,9 +165,10 @@ func parseVolume(value string) (container.Mount, error) {
 		return container.Mount{}, err
 	}
 
-	abs, err := filepath.Abs(spec.source)
+	// Before the stat: a missing source is created below.
+	abs, err := hostPath(spec.source)
 	if err != nil {
-		return container.Mount{}, fmt.Errorf("resolving volume host %q: %w", spec.source, err)
+		return container.Mount{}, fmt.Errorf("%w: volume %q: host: %w", errUsage, value, err)
 	}
 
 	info, err := os.Stat(abs)
@@ -457,7 +459,7 @@ func (c *runCmd) runSpec(instanceID string) (container.RunSpec, error) {
 		CPUs:       c.CPUs,
 		Memory:     uint64(c.Memory),
 		Mounts:     mounts,
-		ConsoleLog: c.ConsoleLog,
+		ConsoleLog: c.ConsoleLog.Path,
 		Stdout:     os.Stdout,
 	}
 
@@ -643,12 +645,12 @@ type buildkitCmd struct {
 	Memory memorySize `default:"8GiB" help:"memory, with a unit: 8GiB, 512MiB, 1.5GB (0: all host memory)"`
 	// The default is the digest-pinned image linked in at build time (main.buildkitImage,
 	// fed from the .justfile); kong interpolates it via kong.Vars.
-	Image      string `default:"${buildkit_image}"                                                                                             help:"buildkit image (digest-pinned by default)"`
-	Sock       string `help:"host unix socket path (default: state dir)"`
-	ConsoleLog string `help:"guest console log file"                                                                                           name:"console-log"`
-	Cache      string `help:"persistent buildkit cache: a name (central, default: current dir) or a path like ./.ossein/cache (project-local)"`
-	PrintCache bool   `help:"resolve and print the cache directory, then exit"                                                                 name:"print-cache"`
-	Detach     bool   `help:"background the VM, print BUILDKIT_HOST, exit"`
+	Image      string     `default:"${buildkit_image}"                                                                                             help:"buildkit image (digest-pinned by default)"`
+	Sock       string     `help:"host unix socket path (default: state dir)"`
+	ConsoleLog consoleLog `embed:""`
+	Cache      string     `help:"persistent buildkit cache: a name (central, default: current dir) or a path like ./.ossein/cache (project-local)"`
+	PrintCache bool       `help:"resolve and print the cache directory, then exit"                                                                 name:"print-cache"`
+	Detach     bool       `help:"background the VM, print BUILDKIT_HOST, exit"`
 	// InstanceID/CacheDir/CacheLocal are internal: the detach launcher sets them
 	// on the re-exec'd child so it shares the parent's instance dir and the
 	// already-resolved cache location (no re-resolution against a changed CWD).
@@ -862,7 +864,7 @@ func (c *buildkitCmd) buildkitSpec(instanceID, volumePath string, logs io.Writer
 		Network:    true,
 		CPUs:       c.CPUs,
 		Memory:     uint64(c.Memory),
-		ConsoleLog: c.ConsoleLog,
+		ConsoleLog: c.ConsoleLog.Path,
 		Disks:      []container.DiskMount{{ImagePath: volumePath, GuestPath: buildkitDataDir}},
 		Stdout:     logs,
 		Stderr:     logs,
@@ -877,13 +879,18 @@ func serveBuildkit(ctx context.Context, logger *slog.Logger, inst *container.Ins
 	}
 
 	cleanup, err := inst.ExposeUnix(ctx, guestBkSock, hostSock)
-	if err != nil {
-		// ExposeUnix refuses a host socket something still answers on (its
-		// error names the path); name the fix, not just the failure.
+	if errors.Is(err, container.ErrSocketInUse) {
+		// Something still answers on that path (the error names it); name
+		// the fix, not just the failure.
 		return fmt.Errorf(
 			"exposing buildkitd: %w — `ossein stop` the instance using it, or pass a different --sock", err,
 		)
 	}
+
+	if err != nil {
+		return fmt.Errorf("exposing buildkitd: %w", err)
+	}
+
 	defer cleanup()
 
 	fmt.Fprintf(os.Stdout, "export BUILDKIT_HOST=unix://%s\n", hostSock)
@@ -897,16 +904,24 @@ func serveBuildkit(ctx context.Context, logger *slog.Logger, inst *container.Ins
 // is resolved by buildctl against ITS cwd, so a relative path printed verbatim
 // silently stops working after any `cd`.
 func resolveSock(flag, instanceDir string) (string, error) {
-	if flag == "" {
-		return filepath.Join(instanceDir, hostBkSock), nil
+	sock := filepath.Join(instanceDir, hostBkSock)
+
+	if flag != "" {
+		abs, err := filepath.Abs(flag)
+		if err != nil {
+			return "", fmt.Errorf("resolving --sock %q: %w", flag, err)
+		}
+
+		sock = abs
 	}
 
-	abs, err := filepath.Abs(flag)
-	if err != nil {
-		return "", fmt.Errorf("resolving --sock %q: %w", flag, err)
+	// On the final string, before boot: past sun_path's limit, bind and dial
+	// fail only at expose time, with a bare EINVAL.
+	if err := pathcheck.ValidateSocket(sock); err != nil {
+		return "", fmt.Errorf("%w: --sock: %w", errUsage, err)
 	}
 
-	return abs, nil
+	return sock, nil
 }
 
 // waitBuildkit blocks until buildkitd exits. On the signal path the escalation
@@ -964,9 +979,9 @@ func (c *buildkitCmd) resolveCacheDir() (dir string, gitignore bool, err error) 
 
 		return central, false, err
 	case looksLikePath(c.Cache):
-		abs, err := filepath.Abs(c.Cache)
+		abs, err := hostPath(c.Cache)
 		if err != nil {
-			return "", false, fmt.Errorf("resolving cache path %q: %w", c.Cache, err)
+			return "", false, fmt.Errorf("%w: --cache: %w", errUsage, err)
 		}
 
 		return abs, true, nil
@@ -1119,8 +1134,8 @@ func (c *buildkitCmd) childCmd(
 		args = append(args, "--cache-local")
 	}
 
-	if c.ConsoleLog != "" {
-		args = append(args, "--console-log", c.ConsoleLog)
+	if c.ConsoleLog.Path != "" {
+		args = append(args, "--console-log", c.ConsoleLog.Path)
 	}
 
 	// #nosec G204 -- re-exec of our own binary (os.Executable) with our own flags; the child outlives any context
@@ -1199,8 +1214,8 @@ func removeInstanceDirOnReturn(err error) bool {
 // once joined into a path — shared by stop's argv ids and buildkit's hidden
 // --instance-id (whose dir is later os.RemoveAll'd, the sharp edge).
 func validateInstanceID(id string) error {
-	if id == "" || id == "." || id == ".." || strings.ContainsAny(id, `/\`) {
-		return fmt.Errorf("%w: invalid instance id %q", errUsage, id)
+	if err := pathcheck.ValidateComponent(id); err != nil {
+		return fmt.Errorf("%w: invalid instance id %q: %w", errUsage, id, err)
 	}
 
 	return nil

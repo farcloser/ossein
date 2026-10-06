@@ -145,7 +145,7 @@ func (*versionCmd) Run() error {
 // --- doctor ---
 
 type doctorCmd struct {
-	ConsoleLog string `help:"guest console log file" name:"console-log"`
+	ConsoleLog consoleLog `embed:""`
 }
 
 func (c *doctorCmd) Run(logger *slog.Logger, art *container.Artifacts) error {
@@ -155,7 +155,7 @@ func (c *doctorCmd) Run(logger *slog.Logger, art *container.Artifacts) error {
 
 	logger.Info("doctor: booting bare microVM (no image, no network)")
 
-	if err := container.Doctor(context.Background(), *art, c.ConsoleLog); err != nil {
+	if err := container.Doctor(context.Background(), *art, c.ConsoleLog.Path); err != nil {
 		return fmt.Errorf("doctor: %w", err)
 	}
 
