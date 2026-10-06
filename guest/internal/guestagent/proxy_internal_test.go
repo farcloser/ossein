@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -110,5 +111,65 @@ func TestBidiCopyHalfCloseDoesNotCutTheOtherDirection(t *testing.T) {
 	case <-relayDone:
 	case <-time.After(2 * time.Second):
 		t.Fatal("bidiCopy did not return after both directions ended")
+	}
+}
+
+// The exposed socket path is image-controlled: an absolute symlink there must
+// resolve inside the rootfs, and one naming a socket outside it must not
+// connect to it.
+func TestBackendDialerStaysInsideTheRootfs(t *testing.T) {
+	t.Parallel()
+
+	rootfs, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	listen := func(path string) net.Listener {
+		listener, listenErr := net.Listen("unix", path)
+		if listenErr != nil {
+			t.Fatal(listenErr)
+		}
+
+		t.Cleanup(func() { _ = listener.Close() })
+
+		return listener
+	}
+
+	inside := listen(filepath.Join(rootfs, "inside.sock"))
+
+	if err = os.MkdirAll(filepath.Join(rootfs, "run", "buildkit"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = os.Symlink("/inside.sock", filepath.Join(rootfs, "run", "buildkit", "buildkitd.sock")); err != nil {
+		t.Fatal(err)
+	}
+
+	conn, err := backendDialer(filepath.Join(rootfs, "run", "buildkit", "buildkitd.sock"), rootfs)()
+	if err != nil {
+		t.Fatalf("dial through an in-root symlink: %v", err)
+	}
+
+	_ = conn.Close()
+
+	accepted, err := inside.Accept()
+	if err != nil {
+		t.Fatalf("the in-root socket saw no connection: %v", err)
+	}
+
+	_ = accepted.Close()
+
+	outside := filepath.Join(t.TempDir(), "outside.sock")
+	listen(outside)
+
+	if err = os.Symlink(outside, filepath.Join(rootfs, "escape.sock")); err != nil {
+		t.Fatal(err)
+	}
+
+	if conn, err = backendDialer(filepath.Join(rootfs, "escape.sock"), rootfs)(); err == nil {
+		_ = conn.Close()
+
+		t.Fatal("dial through a symlink naming a socket outside the rootfs connected")
 	}
 }
