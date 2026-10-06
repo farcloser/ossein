@@ -26,8 +26,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/mycophonic/primordium/filesystem"
+	"github.com/mycophonic/primordium/filesystem/pathcheck"
 
 	"github.com/farcloser/ossein/internal/protocol"
 )
@@ -80,12 +82,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := build(*inPath, *out, *initPath); err != nil {
+	// -out is the one path this writes. Absolute first: pathcheck refuses "."
+	// and "..", which a relative path legitimately carries.
+	outPath, err := filepath.Abs(*out)
+	if err == nil {
+		err = pathcheck.Validate(outPath)
+	}
+
+	if err != nil {
+		slog.Error("build-initfs: -out", "err", err)
+		os.Exit(1)
+	}
+
+	if err = build(*inPath, outPath, *initPath); err != nil {
 		slog.Error("build-initfs failed", "err", err)
 		os.Exit(1)
 	}
 
-	slog.Info("build-initfs: wrote the initfs", "out", *out, "init", *initPath)
+	slog.Info("build-initfs: wrote the initfs", "out", outPath, "init", *initPath)
 }
 
 func build(inPath, out, initPath string) error {

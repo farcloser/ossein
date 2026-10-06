@@ -9,11 +9,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/mycophonic/primordium/bytesize"
+	"github.com/mycophonic/primordium/filesystem/pathcheck"
 
 	"github.com/farcloser/ossein/internal/cli"
 )
@@ -21,14 +23,16 @@ import (
 func TestValidateInstanceID(t *testing.T) {
 	t.Parallel()
 
-	bad := []string{"", ".", "..", "../../foo", `..\foo`, "a/b", `a\b`, "/abs"}
+	// pathcheck's rules for a path component on this platform; a backslash is
+	// an ordinary filename character on darwin and cannot leave the state root.
+	bad := []string{"", ".", "..", "../../foo", "a/b", "/abs", " ", "a\x00b", strings.Repeat("a", 256)}
 	for _, id := range bad {
 		if err := validateInstanceID(id); err == nil {
 			t.Errorf("validateInstanceID(%q) = nil, want error", id)
 		}
 	}
 
-	good := []string{"abcdef123456", "doctor", "a-b_c.d"}
+	good := []string{"abcdef123456", "doctor", "a-b_c.d", `a\b`}
 	for _, id := range good {
 		if err := validateInstanceID(id); err != nil {
 			t.Errorf("validateInstanceID(%q) = %v, want nil", id, err)
@@ -73,19 +77,19 @@ func TestResolveSock(t *testing.T) {
 	}
 
 	// The fix: a relative flag must come back absolute, or the printed
-	// BUILDKIT_HOST silently stops working after any `cd`.
-	got, err = resolveSock("bk.sock", dir)
+	// BUILDKIT_HOST silently stops working after any `cd`. Climbing to the
+	// root keeps the resolved path under the socket limit wherever the
+	// checkout lives.
+	cwd, _ := os.Getwd()
+	rel := strings.Repeat("../", strings.Count(cwd, "/")) + "tmp/bk.sock"
+
+	got, err = resolveSock(rel, dir)
 	if err != nil {
 		t.Fatalf("relative: %v", err)
 	}
 
-	if !filepath.IsAbs(got) {
-		t.Fatalf("relative --sock resolved to %q, want absolute", got)
-	}
-
-	cwd, _ := os.Getwd()
-	if got != filepath.Join(cwd, "bk.sock") {
-		t.Fatalf("relative --sock = %q, want anchored at the caller's cwd", got)
+	if got != filepath.Join(cwd, rel) {
+		t.Fatalf("relative --sock = %q, want %q, anchored at the caller's cwd", got, filepath.Join(cwd, rel))
 	}
 
 	abs := filepath.Join(dir, "x.sock")
@@ -162,5 +166,22 @@ func TestMemoryFlagTakesASizeWithAUnit(t *testing.T) {
 	// 512 meant MiB before --memory took units: never 512 bytes.
 	if _, err := parse("run", "--memory", "512", "img"); !errors.Is(err, cli.ErrSizeUnit) {
 		t.Errorf("--memory 512 = %v, want ErrSizeUnit", err)
+	}
+}
+
+func TestResolveSockRefusesPastTheLimit(t *testing.T) {
+	t.Parallel()
+
+	// macOS bounds sun_path at 104 bytes, NUL included.
+	limit := "/tmp/" + strings.Repeat("s", 98)
+
+	got, err := resolveSock(limit, t.TempDir())
+	if err != nil || got != limit {
+		t.Fatalf("103-byte --sock = (%q, %v), want it accepted", got, err)
+	}
+
+	_, err = resolveSock(limit+"s", t.TempDir())
+	if !errors.Is(err, errUsage) || !errors.Is(err, pathcheck.ErrInvalidPath) {
+		t.Fatalf("104-byte --sock = %v, want errUsage wrapping ErrInvalidPath", err)
 	}
 }
