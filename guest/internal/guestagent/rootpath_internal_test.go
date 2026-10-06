@@ -14,7 +14,7 @@ import (
 //
 // They were originally written against the tar extractor, which is gone along
 // with the tar codec — the guest mounts an EROFS image now and unpacks
-// nothing. The containment boundary they exercise (rootPath, openat2 with
+// nothing. The containment boundary they exercise (rootpath, openat2 with
 // RESOLVE_IN_ROOT) is unchanged and still load-bearing, and this consumer is
 // the one that was PROVEN reachable: an image shipping etc/resolv.conf as a
 // symlink to an absolute guest path made the root-privileged agent write
@@ -82,7 +82,7 @@ func TestWriteRootfsFileFinalSymlinkIsReplacedNotFollowed(t *testing.T) {
 
 // TestWriteRootfsFileIntermediateSymlinkIsConfined covers the other half: an
 // image-planted symlink at a PARENT component, pointing by absolute path at a
-// real directory outside the rootfs. rootPath resolves parents through the
+// real directory outside the rootfs. rootpath resolves parents through the
 // kernel, so the write must not land there.
 func TestWriteRootfsFileIntermediateSymlinkIsConfined(t *testing.T) {
 	t.Parallel()

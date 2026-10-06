@@ -1,6 +1,9 @@
 //go:build linux
 
-package guestagent
+// Package rootpath resolves paths against a container rootfs the way a chroot
+// would, through the kernel (openat2 RESOLVE_IN_ROOT). It is the guest's one
+// containment boundary for image-controlled paths.
+package rootpath
 
 import (
 	"errors"
@@ -13,7 +16,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// rootPath resolves archive- and image-supplied paths against a root the way a
+// ErrPathEscapes is a path that resolves, or is spelled, outside the root.
+var ErrPathEscapes = errors.New("path escapes rootfs")
+
+// dirMode is the mode of a directory created inside the root: the workload,
+// possibly non-root, must be able to traverse it.
+const dirMode = 0o755
+
+// Root resolves archive- and image-supplied paths against a root the way a
 // chroot would, and is the ONLY containment boundary for those paths.
 //
 // The rule it enforces is the kernel's: RESOLVE_IN_ROOT makes openat2 treat the
@@ -28,7 +38,7 @@ import (
 // but wrong policy: usrmerge images ship "lib -> usr/lib" and a later entry
 // "lib/libc.so" must legitimately resolve into usr/lib. Containment, not
 // avoidance, is the property we need.
-type rootPath struct {
+type Root struct {
 	fd       int
 	resolved string
 
@@ -41,8 +51,8 @@ type rootPath struct {
 	dirCache map[string]string
 }
 
-// openRoot pins root for the lifetime of an extraction. Callers must Close.
-func openRoot(root string) (*rootPath, error) {
+// Open pins root for the lifetime of its use. Callers must Close.
+func Open(root string) (*Root, error) {
 	rootFD, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, fmt.Errorf("open root %s: %w", root, err)
@@ -50,17 +60,18 @@ func openRoot(root string) (*rootPath, error) {
 
 	// The resolved root is what every resolution is checked against below; the
 	// caller's string may itself contain symlinks.
-	resolved, err := os.Readlink(procFDPath(rootFD))
+	resolved, err := os.Readlink(ProcFDPath(rootFD))
 	if err != nil {
 		_ = unix.Close(rootFD)
 
 		return nil, fmt.Errorf("resolve root %s: %w", root, err)
 	}
 
-	return &rootPath{fd: rootFD, resolved: resolved, dirCache: map[string]string{}}, nil
+	return &Root{fd: rootFD, resolved: resolved, dirCache: map[string]string{}}, nil
 }
 
-func (r *rootPath) Close() error {
+// Close releases the root's fd.
+func (r *Root) Close() error {
 	//nolint:wrapcheck // a close error on an O_PATH fd carries no extra context
 	return unix.Close(r.fd)
 }
@@ -75,14 +86,14 @@ func (r *rootPath) Close() error {
 // uses the L* variants so a symlink's own attributes are set. Resolving the
 // last component here would reintroduce exactly the redirection this type
 // exists to stop.
-func (r *rootPath) Resolve(name string) (string, error) {
+func (r *Root) Resolve(name string) (string, error) {
 	// Archive VALIDATION, not containment: the kernel would clamp a ".."
 	// entry into the root and carry on, but a flattened OCI layer has no
 	// legitimate reason to contain one, so treat it as a malformed or hostile
 	// image and say so instead of silently writing somewhere else. Containment
 	// is enforced below, by the kernel, and does not depend on this check.
 	if escapesLexically(r.resolved, name) {
-		return "", fmt.Errorf("%w: %q", errPathEscapes, name)
+		return "", fmt.Errorf("%w: %q", ErrPathEscapes, name)
 	}
 
 	rel := strings.TrimPrefix(filepath.Clean("/"+name), "/")
@@ -107,6 +118,43 @@ func (r *rootPath) Resolve(name string) (string, error) {
 	return filepath.Join(dirReal, base), nil
 }
 
+// Dir resolves name as a directory inside the root, creating any missing
+// component, and returns an O_PATH fd to it, which the caller closes. Unlike
+// Resolve, the last component is followed too, inside the root: the fd is a
+// place to operate on (a mount target through ProcFDPath, a parent for *at
+// calls), so a symlink there must land inside the rootfs, not be replaced.
+// Nothing is created through a symlink: one that dangles is an error.
+func (r *Root) Dir(name string) (int, error) {
+	rel := strings.TrimPrefix(filepath.Clean("/"+name), "/")
+
+	if _, err := r.resolveDir(rel); err != nil {
+		return -1, err
+	}
+
+	return r.open(rel)
+}
+
+// OpenPath returns an O_PATH fd to the existing node name inside the root,
+// symlinks followed and kept inside it, the last component included; the
+// caller closes it. Reached through ProcFDPath, the node is the one resolved
+// here, whatever the path becomes in between.
+func (r *Root) OpenPath(name string) (int, error) {
+	rel := strings.TrimPrefix(filepath.Clean("/"+name), "/")
+	if rel == "" {
+		rel = "."
+	}
+
+	nodeFD, err := unix.Openat2(r.fd, rel, &unix.OpenHow{
+		Flags:   unix.O_PATH | unix.O_CLOEXEC,
+		Resolve: unix.RESOLVE_IN_ROOT,
+	})
+	if err != nil {
+		return -1, fmt.Errorf("open %s in root: %w", rel, err)
+	}
+
+	return nodeFD, nil
+}
+
 // Forget drops cached directory resolutions at or under an archive name.
 // The caller invokes it whenever extraction REPLACES an existing node (the
 // collision-recovery path): the node may have been a directory, or a symlink
@@ -115,7 +163,7 @@ func (r *rootPath) Resolve(name string) (string, error) {
 // succeed where nothing existed, so nothing can have been resolved through
 // the name. Collisions are close to nonexistent in practice, which is what
 // keeps the sweep off the hot path.
-func (r *rootPath) Forget(name string) {
+func (r *Root) Forget(name string) {
 	rel := strings.TrimPrefix(filepath.Clean(string(os.PathSeparator)+name), string(os.PathSeparator))
 	if rel == "" {
 		clear(r.dirCache)
@@ -135,7 +183,7 @@ func (r *rootPath) Forget(name string) {
 // walked incrementally from the previous component: a symlink at depth N must be
 // interpreted against the ROOT, not against its own parent, and only a full
 // re-resolution from the root gets that right.
-func (r *rootPath) resolveDir(dir string) (string, error) {
+func (r *Root) resolveDir(dir string) (string, error) {
 	if dir == "" {
 		return r.resolved, nil
 	}
@@ -170,7 +218,7 @@ func (r *rootPath) resolveDir(dir string) (string, error) {
 
 // mkdirIn creates one component inside an already-resolved parent. Taking the
 // parent as an fd is what keeps the create confined: mkdirat cannot traverse.
-func (r *rootPath) mkdirIn(parent, name string) error {
+func (r *Root) mkdirIn(parent, name string) error {
 	parentFD, err := r.open(parent)
 	if err != nil {
 		return err
@@ -178,7 +226,7 @@ func (r *rootPath) mkdirIn(parent, name string) error {
 	defer func() { _ = unix.Close(parentFD) }()
 
 	// 0o755 for implicitly created parents, as everywhere in the rootfs.
-	if err := unix.Mkdirat(parentFD, name, stdDirMode); err != nil && !errors.Is(err, unix.EEXIST) {
+	if err := unix.Mkdirat(parentFD, name, dirMode); err != nil && !errors.Is(err, unix.EEXIST) {
 		return fmt.Errorf("mkdir %s: %w", filepath.Join(parent, name), err)
 	}
 
@@ -186,14 +234,14 @@ func (r *rootPath) mkdirIn(parent, name string) error {
 }
 
 // lookup returns the resolved path of an existing directory inside the root.
-func (r *rootPath) lookup(rel string) (string, error) {
+func (r *Root) lookup(rel string) (string, error) {
 	dirFD, err := r.open(rel)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = unix.Close(dirFD) }()
 
-	resolved, err := os.Readlink(procFDPath(dirFD))
+	resolved, err := os.Readlink(ProcFDPath(dirFD))
 	if err != nil {
 		return "", fmt.Errorf("resolve %s: %w", rel, err)
 	}
@@ -202,13 +250,13 @@ func (r *rootPath) lookup(rel string) (string, error) {
 	// outside the root here means an assumption broke (a bind mount inside the
 	// root, a root that moved). Fail loudly rather than write outside.
 	if resolved != r.resolved && !strings.HasPrefix(resolved, r.resolved+string(os.PathSeparator)) {
-		return "", fmt.Errorf("%w: %q resolved to %q", errPathEscapes, rel, resolved)
+		return "", fmt.Errorf("%w: %q resolved to %q", ErrPathEscapes, rel, resolved)
 	}
 
 	return resolved, nil
 }
 
-func (r *rootPath) open(rel string) (int, error) {
+func (r *Root) open(rel string) (int, error) {
 	if rel == "" || rel == "." {
 		rel = "."
 	}
@@ -225,7 +273,10 @@ func (r *rootPath) open(rel string) (int, error) {
 	return dirFD, nil
 }
 
-func procFDPath(fd int) string {
+// ProcFDPath is the magic link naming fd: handed to a syscall that takes a
+// path (mount, connect), it reaches exactly the node fd holds, with no lookup
+// left for a symlink to redirect.
+func ProcFDPath(fd int) string {
 	return "/proc/self/fd/" + strconv.Itoa(fd)
 }
 
