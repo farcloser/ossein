@@ -19,7 +19,9 @@
       "datasourceTemplate": "docker",
       "managerFilePatterns": [
         "/^\\.justfile$/",
-        "/^hack/[^/]+\\.sh$/"
+        "/^hack/[^/]+\\.sh$/",
+        "/^README\\.md$/",
+        "/^hack/vsockbench/main\\.go$/"
       ],
       "matchStrings": [
         "[\"'= ](?<depName>(?:docker\\.io/)?(?:library/)?(?:debian|alpine)):(?<currentValue>[a-z0-9.-]+)@(?<currentDigest>sha256:[0-9a-f]{64})"
@@ -30,7 +32,7 @@
     "The canonical Renovate configuration is .limen/renovate.json, content-pinned like the rest of .limen/, so a fix there reaches this repository with its next limen bump, in the bump's diff. extends reads it by this repository's own name (local>owner/name//.limen/renovate): Renovate refuses a relative reference in a repository's own config. The `renovate` rule writes that reference from the origin remote and rewrites it after a rename or a fork. Everything below is the project's own — overrides and additions go here, next to the reference.",
     "forkProcessing: Renovate skips forked repositories by default under an all-repositories App installation, and it skips them before reading any config beyond this file — so the setting cannot live in the shared preset, and cannot live in a renovate.json5 either: only the onboarding config file name, renovate.json, is read through the platform API at that point. Every repository that is a GitHub fork is silently never processed without it.",
     "gitIgnoredAuthors: the update-aqua-checksum workflow pushes a fix-up commit onto Renovate's branches; without this, Renovate treats the branch as human-modified and stops rebasing it. The org's App identity is the org's, so the array stays here (the `renovate` rule maintains it) rather than in the preset.",
-    "customManagers: the docker digest pins Renovate moves itself. The buildkit daemon image, tag and digest in the .justfile and mirrored as the fallback literal in cmd/ossein/main.go, both files in one manager so one update touches both, grouped with the github.com/moby/buildkit module so client and daemon move in one pull request. The bench images in hack/*.sh and the test image in the .justfile. The guest kernel lives in pins.yaml, which the shared preset watches and the checksum workflow refreshes."
+    "customManagers: the docker digest pins Renovate moves itself. The buildkit daemon image, tag and digest in the .justfile and mirrored as the fallback literal in cmd/ossein/main.go, both files in one manager so one update touches both, grouped with the github.com/moby/buildkit module so client and daemon move in one pull request. The bench images in hack/*.sh and hack/vsockbench, the test image in the .justfile, and the README examples. The guest kernel lives in pins.yaml, which the shared preset watches and the checksum workflow refreshes."
   ],
   "extends": [
     "local>farcloser/ossein//.limen/renovate"

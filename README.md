@@ -9,10 +9,10 @@
 # just build embeds the verified guest kernel + initfs INTO the binary —
 # fully self-contained, no artifact paths needed:
 just build
-time ./build/ossein run debian echo hi
+time ./build/ossein run debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 echo hi
 
 # Local dev / bench A/B can override the embedded artifacts:
-OSSEIN_KERNEL=/path/to/kernel-arm64 OSSEIN_INITFS=/path/to/initfs.ext4 ossein run debian echo hi
+OSSEIN_KERNEL=/path/to/kernel-arm64 OSSEIN_INITFS=/path/to/initfs.ext4 ossein run debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 echo hi
 ```
 
 > `just build` is the only sanctioned build: `go install .../cmd/ossein@<ver>`

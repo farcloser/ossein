@@ -310,6 +310,6 @@ bench-build ossein="build/ossein" runs="5":
 # hypervisor traps WFE and whether a WFE-parked CPU wakes from a remote store at spin
 # speed — the two facts that decide if IPI-free polling idle is possible in the guest.
 # Also the canary: Apple guarantees nothing here, so a macOS update could change it.
-# build/ossein run --cpus 4 -v "$PWD/build:/bench" debian /bench/wfeprobe
+# build/ossein run --cpus 4 -v "$PWD/build:/bench" debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 /bench/wfeprobe
 build-wfeprobe:
     {{ linux_env }} go build -trimpath -ldflags "-s -w" -o build/wfeprobe ./hack/wfeprobe
