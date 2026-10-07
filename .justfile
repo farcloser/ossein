@@ -300,16 +300,20 @@ bench-perf-focus ossein="build/ossein" initfs="build/initfs.cpio" kernel=(kernel
 # Each runtime's `run` path: a kernel vmlinux compile in the container rootfs, no
 # mount, COLD every iteration.
 bench-run ossein="build/ossein" runs="5":
+    BENCH_KERNEL_URL="$(limen pins get bench-kernel-source url)" \
+    BENCH_KERNEL_SHA256="$(limen pins get bench-kernel-source sha256)" \
     PATH="{{ ambient_path }}" bash hack/bench-run.sh {{ ossein }} {{ runs }}
 
 # Each runtime's image-BUILD path (ossein via buildkitd + buildctl), same workload.
 bench-build ossein="build/ossein" runs="5":
+    BENCH_KERNEL_URL="$(limen pins get bench-kernel-source url)" \
+    BENCH_KERNEL_SHA256="$(limen pins get bench-kernel-source sha256)" \
     PATH="{{ ambient_path }}" bash hack/bench-build.sh {{ ossein }} {{ runs }}
 
 # Cross-build the WFE probe → build/wfeprobe (linux/arm64, static). Answers whether the
 # hypervisor traps WFE and whether a WFE-parked CPU wakes from a remote store at spin
 # speed — the two facts that decide if IPI-free polling idle is possible in the guest.
 # Also the canary: Apple guarantees nothing here, so a macOS update could change it.
-# build/ossein run --cpus 4 -v "$PWD/build:/bench" debian /bench/wfeprobe
+# build/ossein run --cpus 4 -v "$PWD/build:/bench" debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 /bench/wfeprobe
 build-wfeprobe:
     {{ linux_env }} go build -trimpath -ldflags "-s -w" -o build/wfeprobe ./hack/wfeprobe

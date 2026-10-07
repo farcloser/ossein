@@ -14,7 +14,7 @@
 // The client's own copy loop uses a 1 MiB buffer with the ReaderFrom/WriterTo
 // fast paths hidden, so what is measured is the relay, not this program.
 //
-//	build/vsockbench -image debian -size 2GiB -streams 1 -runs 3
+//	build/vsockbench -size 2GiB -streams 1 -runs 3
 //
 // Requires the VZ entitlement (codesign like build/ossein) and the guest
 // artifacts: -kernel (default pkg/guestartifacts/kernel-arm64) and -initfs
@@ -61,6 +61,7 @@ const (
 	defaultCPUs  = 2
 	defaultMem   = 2 * bytesize.GiB
 	defaultRuns  = 3
+	defaultImage = "debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
 )
 
 var (
@@ -80,7 +81,7 @@ type options struct {
 func main() {
 	opts := options{size: defaultSize, memory: defaultMem}
 
-	flag.StringVar(&opts.image, "image", "debian", "container image (needs nothing but a shell)")
+	flag.StringVar(&opts.image, "image", defaultImage, "container image (needs nothing but a shell)")
 	flag.StringVar(&opts.kernel, "kernel", "pkg/guestartifacts/kernel-arm64", "guest kernel")
 	flag.StringVar(&opts.initfs, "initfs", "build/initfs.cpio", "vminitd initfs (the guest agent under test)")
 	flag.StringVar(&opts.benchDir, "bench-dir", "build", "host dir holding vsockpeer; bind-mounted at "+guestBench)

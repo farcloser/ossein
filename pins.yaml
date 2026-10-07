@@ -1,9 +1,10 @@
-# The ossein-kernel release embedded into the ossein binary (pkg/guestartifacts), pinned by
-# digest; fetch-kernel reads it with `limen pins get` (book/tooling.md, "Pinned artifacts
-# beyond aqua"). The digest is the kernel's line in the release's SHA256SUMS, taken only
-# after cosign has proven who signed that manifest: the identity and issuer below are the
-# same ones fetch-kernel verifies with, and the two must move together.
+# Artifacts fetched by hand, pinned by digest; the recipes read them with `limen pins get`
+# (book/tooling.md, "Pinned artifacts beyond aqua").
 pins:
+  # The ossein-kernel release embedded into the ossein binary (pkg/guestartifacts), read by
+  # fetch-kernel. The digest is the kernel's line in the release's SHA256SUMS, taken only
+  # after cosign has proven who signed that manifest: the identity and issuer below are the
+  # same ones fetch-kernel verifies with, and the two must move together.
   - name: guest-kernel
     renovate: github-releases farcloser/ossein-kernel
     versioning: regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)-ossein\.(?<build>\d+)$
@@ -13,3 +14,16 @@ pins:
     digest:
       version: 7.2.9-ossein.1
       sha256: 347363194b7685ec98d20d68c3055ee820b1c244f4cec62bacbbd6ed64311617
+  # The source tree the run and build benches compile (hack/bench-run.sh,
+  # hack/bench-kernel/Dockerfile): a workload, not the guest kernel under test. Held
+  # where it is (renovate.json): a newer tree is a heavier compile, so a bump
+  # re-baselines every bench number and is made on purpose, not by a bot.
+  - name: bench-kernel-source
+    renovate: github-tags gregkh/linux
+    extract-version: ^v(?<version>[0-9]+\.[0-9]+(?:\.[0-9]+)?)$
+    version: 7.1.3
+    url: https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${version}.tar.xz
+    verify: pgp-sha256sums https://cdn.kernel.org/pub/linux/kernel/v${major}.x/sha256sums.asc https://git.kernel.org/pub/scm/docs/kernel/pgpkeys.git/plain/keys/632D3A06589DA6B1.asc B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1
+    digest:
+      version: 7.1.3
+      sha256: be41c068e88f5242a19bccdbffbe077b18c47b45f627e2325504b4fab79dd1dc
