@@ -300,10 +300,14 @@ bench-perf-focus ossein="build/ossein" initfs="build/initfs.cpio" kernel=(kernel
 # Each runtime's `run` path: a kernel vmlinux compile in the container rootfs, no
 # mount, COLD every iteration.
 bench-run ossein="build/ossein" runs="5":
+    BENCH_KERNEL_URL="$(limen pins get bench-kernel-source url)" \
+    BENCH_KERNEL_SHA256="$(limen pins get bench-kernel-source sha256)" \
     PATH="{{ ambient_path }}" bash hack/bench-run.sh {{ ossein }} {{ runs }}
 
 # Each runtime's image-BUILD path (ossein via buildkitd + buildctl), same workload.
 bench-build ossein="build/ossein" runs="5":
+    BENCH_KERNEL_URL="$(limen pins get bench-kernel-source url)" \
+    BENCH_KERNEL_SHA256="$(limen pins get bench-kernel-source sha256)" \
     PATH="{{ ambient_path }}" bash hack/bench-build.sh {{ ossein }} {{ runs }}
 
 # Cross-build the WFE probe → build/wfeprobe (linux/arm64, static). Answers whether the

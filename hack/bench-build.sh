@@ -30,6 +30,10 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 CTX="$HERE/hack/bench-kernel"                  # build context (the Dockerfile dir)
 BASE='debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251' # FROM in the Dockerfile (wiped for cold pull)
 TAG='ossein-benchbuild'
+# The workload's kernel source: pins.yaml's bench-kernel-source, passed in by `just bench-build`
+# and handed to the Dockerfile as build args.
+KURL="${BENCH_KERNEL_URL:?run through just bench-build}"
+KSHA="${BENCH_KERNEL_SHA256:?run through just bench-build}"
 
 # One real docker CLI (from PATH) drives BOTH daemons; --context selects which. label=context.
 DOCKER="$(command -v docker 2>/dev/null || true)"
@@ -55,7 +59,8 @@ run_ossein_build() {
   eval "$("$OSSEIN" buildkit --detach --cpus "$CPUS" 2>/dev/null)" || { echo "ossein buildkit --detach failed" >&2; return 1; }
   [ -n "${BUILDKIT_HOST:-}" ] || { echo "no BUILDKIT_HOST from ossein buildkit" >&2; return 1; }
   buildctl build --frontend dockerfile.v0 \
-    --local context="$CTX" --local dockerfile="$CTX" --no-cache
+    --local context="$CTX" --local dockerfile="$CTX" --no-cache \
+    --opt build-arg:KURL="$KURL" --opt build-arg:KSHA="$KSHA"
 }
 
 timed() {  # <wipe args...> -- <run cmd...> -> seconds, or fail (prints tail on error)
@@ -85,7 +90,7 @@ row ossein "$m" "$md" "$n"
 
 if command -v container >/dev/null 2>&1; then
   echo ">> apple-container"
-  read -r m md n <<<"$(run_med timed wipe_apple -- container build --no-cache -t "$TAG" "$CTX")"
+  read -r m md n <<<"$(run_med timed wipe_apple -- container build --no-cache --build-arg KURL="$KURL" --build-arg KSHA="$KSHA" -t "$TAG" "$CTX")"
   row apple-container "$m" "$md" "$n"
 fi
 
@@ -95,13 +100,13 @@ for spec in "${RUNTIMES[@]}"; do
   "$DOCKER" --context "$ctx" version >/dev/null 2>&1 || { echo ">> $label: (ctx $ctx unreachable)"; continue; }
   echo ">> $label (ctx=$ctx)"
   read -r m md n <<<"$(run_med timed wipe_docker "$DOCKER" "$ctx" -- \
-    "$DOCKER" --context "$ctx" build --no-cache -t "$TAG" "$CTX")"
+    "$DOCKER" --context "$ctx" build --no-cache --build-arg KURL="$KURL" --build-arg KSHA="$KSHA" -t "$TAG" "$CTX")"
   row "$label" "$m" "$md" "$n"
 done
 
 if command -v podman >/dev/null 2>&1; then
   echo ">> podman"
-  read -r m md n <<<"$(run_med timed wipe_podman -- podman build --no-cache -t "$TAG" "$CTX")"
+  read -r m md n <<<"$(run_med timed wipe_podman -- podman build --no-cache --build-arg KURL="$KURL" --build-arg KSHA="$KSHA" -t "$TAG" "$CTX")"
   row podman "$m" "$md" "$n"
 fi
 

@@ -2,7 +2,7 @@
 # Same workload as the RUN bench (hack/bench-run.sh): compile a pinned Linux
 # kernel (vmlinux, arm64 defconfig) — thousands of files, heavy cc/ld fork-exec.
 # -j is FIXED here (not $(nproc)) so build parallelism is equal across runtimes
-# regardless of each build VM's CPU count. Self-contained; BASE/KURL are pinned.
+# regardless of each build VM's CPU count. The kernel source comes in as build args.
 FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
 # Deliberately unpinned apt versions: this image is a benchmark harness, not a
 # shipped artifact, and pinning would break it on every debian point release.
@@ -11,7 +11,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential bc bison flex libssl-dev libelf-dev xz-utils curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-RUN curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.1.3.tar.xz" -o k.tar.xz \
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# pins.yaml's bench-kernel-source, passed by hack/bench-build.sh; no default, so a
+# build outside it fails here instead of compiling an unchecked tree.
+ARG KURL
+ARG KSHA
+RUN test -n "$KURL" && test -n "$KSHA" \
+ && curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors "$KURL" -o k.tar.xz \
+ && echo "$KSHA  k.tar.xz" | sha256sum -c - \
  && tar xf k.tar.xz && rm k.tar.xz
 # WORKDIR cannot take the extracted tree: its name is a glob (linux-<version>),
 # and WORKDIR does not expand one — so `cd` is the only option here.

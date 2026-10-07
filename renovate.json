@@ -44,6 +44,16 @@
   ],
   "packageRules": [
     {
+      "description": "pins.yaml's bench-kernel-source is the benches' compile workload, not a dependency: a newer tree is a heavier compile, so a bump re-baselines every bench number and is made by hand, on purpose.",
+      "enabled": false,
+      "matchFileNames": [
+        "pins.yaml"
+      ],
+      "matchPackageNames": [
+        "gregkh/linux"
+      ]
+    },
+    {
       "description": "The buildkit client library and the daemon image move together: one pull request, one review.",
       "groupName": "buildkit",
       "matchPackageNames": [

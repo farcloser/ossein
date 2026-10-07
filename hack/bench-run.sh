@@ -30,7 +30,9 @@ CCPUS=$((CPUS - 1))
 MEM=8192                                   # MiB for per-VM runtimes (kernel objects are big)
 
 BASE='debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251'
-KURL='https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.1.3.tar.xz'
+# The workload's kernel source: pins.yaml's bench-kernel-source, passed in by `just bench-run`.
+KURL="${BENCH_KERNEL_URL:?run through just bench-run}"
+KSHA="${BENCH_KERNEL_SHA256:?run through just bench-run}"
 
 # The whole workload, run in the container rootfs (/tmp), no mount. Build only
 # `vmlinux` (kernel image, no modules) to keep each run bounded (~minutes).
@@ -47,6 +49,7 @@ apt-get install -y -qq --no-install-recommends build-essential bc bison flex \
   libssl-dev libelf-dev xz-utils curl ca-certificates >/dev/null 2>&1
 cd /tmp
 curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors "'"$KURL"'" -o k.tar.xz
+echo "'"$KSHA"'  k.tar.xz" | sha256sum -c -
 tar xf k.tar.xz
 cd linux-*
 make -s defconfig
