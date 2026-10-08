@@ -154,7 +154,9 @@ type cpio struct {
 
 func newCpio() *cpio { return &cpio{ino: 1} }
 
-func (c *cpio) dir(name string) { c.entry(name, modeDir|filesystem.DirPermissionsDefault, 0, 0, nil) }
+func (c *cpio) dir(name string) {
+	c.entry(name, modeDir|uint32(filesystem.DirPermissionsDefault), 0, 0, nil)
+}
 
 func (c *cpio) file(name string, perm uint32, data []byte) {
 	c.entry(name, modeReg|perm, 0, 0, data)
