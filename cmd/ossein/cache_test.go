@@ -33,7 +33,10 @@ func TestLooksLikePath(t *testing.T) {
 }
 
 func TestResolveCacheDir(t *testing.T) {
-	t.Parallel()
+	// The central cases resolve DataDir, derived from $HOME on darwin: redirected
+	// so the test never creates the user's real cache volumes. t.Setenv forbids
+	// t.Parallel.
+	t.Setenv("HOME", t.TempDir())
 
 	cwd, err := os.Getwd()
 	if err != nil {
