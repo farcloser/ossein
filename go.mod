@@ -14,7 +14,7 @@ require (
 	connectrpc.com/connect v1.21.0
 	github.com/alecthomas/kong v1.16.1
 	github.com/diskfs/go-diskfs v1.9.4
-	github.com/forkcloser/erofs v1.0.1
+	github.com/forkcloser/erofs v1.0.2
 	github.com/google/go-containerregistry v0.22.1
 	github.com/mdlayher/vsock v1.3.0
 	github.com/moby/buildkit v0.33.1
