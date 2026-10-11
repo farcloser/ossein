@@ -54,6 +54,16 @@
       ]
     },
     {
+      "description": "connectrpc.com/connect v2 is a rewrite of the Go API, not a bump: generated code changes shape, servers register behind a Transport, interceptors wrap whole calls and error messages stop crossing to the client by default. ossein's guest agent and host client are written against v1, which upstream keeps supported on its v1 branch; the migration is a change of its own, decided by hand, not a Renovate pull request. Majors are held until then.",
+      "enabled": false,
+      "matchPackageNames": [
+        "connectrpc.com/connect"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ]
+    },
+    {
       "description": "The buildkit client library and the daemon image move together: one pull request, one review.",
       "groupName": "buildkit",
       "matchPackageNames": [
