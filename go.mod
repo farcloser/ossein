@@ -11,7 +11,7 @@ module github.com/farcloser/ossein
 go 1.26.8
 
 require (
-	connectrpc.com/connect v1.21.0
+	connectrpc.com/connect/v2 v2.0.0
 	github.com/alecthomas/kong v1.16.1
 	github.com/diskfs/go-diskfs v1.9.4
 	github.com/forkcloser/erofs v1.0.2

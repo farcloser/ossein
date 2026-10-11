@@ -24,7 +24,8 @@ import (
 	"syscall"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/mdlayher/vsock"
 	"github.com/mycophonic/primordium/bytesize"
 	"golang.org/x/sys/unix"
@@ -193,7 +194,6 @@ func runInit() error {
 	guarded := hostOnlyListener{listener}
 
 	agent := guestagent.New(rootfsJob)
-	shim := guestagent.NewConnectShim(agent)
 
 	// connect over plain HTTP/1.1 on the vsock listener. No h2c: every RPC here
 	// is unary except Copy, which is server-streaming — and Connect streams that
@@ -202,6 +202,9 @@ func runInit() error {
 	// WaitProcess blocks for the container's whole life while Kill, Resize and
 	// CloseProcessStdin still get served, because the client opens another
 	// connection rather than queueing behind it.
+	rpc := connect.NewServer(guestagent.WireErrorText)
+	sandboxconnect.RegisterSandboxContextHandler(rpc, agent)
+
 	mux := http.NewServeMux()
 	// The read ceiling enforces the "bulk data belongs on Copy" rule stated
 	// above: Copy moves bytes via an attached device, so no legitimate request
@@ -209,7 +212,7 @@ func runInit() error {
 	// Connect applies no limit unless told, and an unbounded WriteFile would
 	// otherwise buffer arbitrarily large bodies in PID 1's memory. Here and
 	// not in internal/httpd, so the error names the RPC (httpd.go says so).
-	mux.Handle(sandboxconnect.NewSandboxContextHandler(shim, connect.WithReadMaxBytes(maxRequestBytes)))
+	connecthttp.Mount(mux, rpc, connecthttp.WithReadMaxBytes(maxRequestBytes))
 
 	// internal/httpd, not http.Server: naming http.Server links crypto/tls (its
 	// conn.serve type-asserts to *tls.Conn), which costs 1.50 MiB in a guest that

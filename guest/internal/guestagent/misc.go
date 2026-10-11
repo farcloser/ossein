@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"golang.org/x/sys/unix"
 
 	pb "github.com/farcloser/ossein/internal/sandbox"
@@ -19,7 +19,7 @@ const binfmtRegister = "/proc/sys/fs/binfmt_misc/register"
 // Umount unmounts a path with the given flags.
 func (*Agent) Umount(_ context.Context, req *pb.UmountRequest) (*pb.UmountResponse, error) {
 	if err := unix.Unmount(req.GetPath(), int(req.GetFlags())); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "umount %s: %v", req.GetPath(), err)
+		return nil, connect.Errorf(connect.CodeInternal, "umount %s: %v", req.GetPath(), err)
 	}
 
 	return &pb.UmountResponse{}, nil
@@ -37,7 +37,7 @@ func (*Agent) Sync(_ context.Context, _ *pb.SyncRequest) (*pb.SyncResponse, erro
 func (*Agent) SetTime(_ context.Context, req *pb.SetTimeRequest) (*pb.SetTimeResponse, error) {
 	tv := unix.Timeval{Sec: req.GetSec(), Usec: int64(req.GetUsec())}
 	if err := unix.Settimeofday(&tv); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "settimeofday: %v", err)
+		return nil, connect.Errorf(connect.CodeInternal, "settimeofday: %v", err)
 	}
 
 	return &pb.SetTimeResponse{}, nil
@@ -54,7 +54,7 @@ func (*Agent) SetupEmulator(_ context.Context, req *pb.SetupEmulatorRequest) (*p
 	// The register pseudo-file always exists on the mounted binfmt_misc; the
 	// mode argument is only used on create and thus never takes effect.
 	if err := os.WriteFile(binfmtRegister, []byte(registration), stdFileMode); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "register binfmt %q: %v", req.GetName(), err)
+		return nil, connect.Errorf(connect.CodeInternal, "register binfmt %q: %v", req.GetName(), err)
 	}
 
 	return &pb.SetupEmulatorResponse{}, nil

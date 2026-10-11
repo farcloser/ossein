@@ -5,33 +5,36 @@ package guestagent
 import (
 	"context"
 	"errors"
-	"fmt"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 )
 
-// rpcErrorf returns a coded RPC error, the Connect equivalent of grpc's
-// status.Errorf (which is what this replaced). The code reaches the host as the response's status; ossein's
-// own CLI only surfaces the message, but the code is what any other client —
-// and any future retry logic — would branch on, so handlers keep stating it.
-//
-// The error is deliberately dynamic: these carry per-call context (the path
-// that failed, the errno underneath), which a static sentinel cannot.
-func rpcErrorf(code connect.Code, format string, args ...any) error {
-	return connect.NewError(code, fmt.Errorf(format, args...)) //nolint:err113 // see above
-}
+// WireErrorText is the server interceptor that lets a handler's error text
+// reach the host. connect serializes only the message of a *connect.Error it
+// was handed; any other error crosses as a bare code. The host is the one
+// caller and ossein's CLI shows the message, so a plain error (an errno, a
+// wrapped cause) is given its text here, and a context error its code, which
+// is what v1 did on its own.
+func WireErrorText(next connect.ServerFunc) connect.ServerFunc {
+	return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
+		err := next(ctx, spec, stream)
+		if err == nil {
+			return nil
+		}
 
-// rpcContextError maps a cancelled or expired context onto the matching RPC
-// code, so a client that gave up sees Canceled/DeadlineExceeded rather than a
-// generic internal failure. Mirrors the grpc status.FromContextError this
-// replaced.
-func rpcContextError(err error) error {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return connect.NewError(connect.CodeCanceled, err)
-	case errors.Is(err, context.DeadlineExceeded):
-		return connect.NewError(connect.CodeDeadlineExceeded, err)
-	default:
-		return connect.NewError(connect.CodeUnknown, err)
+		if _, coded := errors.AsType[*connect.Error](err); coded {
+			return err
+		}
+
+		code := connect.CodeUnknown
+
+		switch {
+		case errors.Is(err, context.Canceled):
+			code = connect.CodeCanceled
+		case errors.Is(err, context.DeadlineExceeded):
+			code = connect.CodeDeadlineExceeded
+		}
+
+		return connect.NewError(code, err.Error()).WithCause(err)
 	}
 }

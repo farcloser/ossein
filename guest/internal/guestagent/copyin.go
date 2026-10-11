@@ -14,12 +14,13 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"golang.org/x/sys/unix"
 
 	"github.com/farcloser/ossein/guest/internal/vmexec"
 	"github.com/farcloser/ossein/internal/rootfsblob"
 	pb "github.com/farcloser/ossein/internal/sandbox"
+	"github.com/farcloser/ossein/internal/sandbox/sandboxconnect"
 )
 
 // maxprocsOnce drops GOMAXPROCS to 1 exactly once, after the rootfs is
@@ -108,22 +109,24 @@ func (j *RootfsJob) run() {
 // The RPC keeps its archive-shaped name and is_archive flag because the proto
 // is vendored from upstream and describes a general copy-in. What ossein
 // actually does no longer resembles one; see materializeRootfs.
-func (a *Agent) Copy(ctx context.Context, req *pb.CopyRequest, stream *connect.ServerStream[pb.CopyResponse]) error {
+func (a *Agent) Copy(
+	ctx context.Context, req *pb.CopyRequest, stream sandboxconnect.SandboxContextCopyServerStream,
+) error {
 	if req.GetDirection() != pb.CopyRequest_COPY_IN {
-		return rpcErrorf(connect.CodeInvalidArgument, "copy: only COPY_IN is implemented")
+		return connect.Errorf(connect.CodeInvalidArgument, "copy: only COPY_IN is implemented")
 	}
 
 	if !req.GetIsArchive() {
-		return rpcErrorf(connect.CodeUnimplemented, "copy: only archive COPY_IN is implemented")
+		return connect.Errorf(connect.CodeUnimplemented, "copy: only archive COPY_IN is implemented")
 	}
 
 	job := a.rootfs
 	if job == nil {
-		return rpcErrorf(connect.CodeFailedPrecondition, "copy: no rootfs plan on the kernel cmdline")
+		return connect.Errorf(connect.CodeFailedPrecondition, "copy: no rootfs plan on the kernel cmdline")
 	}
 
 	if req.GetPath() != job.dest || req.GetDevice() != job.serial {
-		return rpcErrorf(connect.CodeInvalidArgument,
+		return connect.Errorf(connect.CodeInvalidArgument,
 			"copy: request (%s from %s) does not match the boot plan (%s from %s)",
 			req.GetPath(), req.GetDevice(), job.dest, job.serial)
 	}

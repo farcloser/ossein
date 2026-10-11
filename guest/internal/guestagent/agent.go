@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"strings"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/mycophonic/primordium/bytesize"
 	"golang.org/x/sys/unix"
 
@@ -98,7 +98,7 @@ func (*Agent) Mkdir(_ context.Context, req *pb.MkdirRequest) (*pb.MkdirResponse,
 	}
 
 	if err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "mkdir %s: %v", req.GetPath(), err)
+		return nil, connect.Errorf(connect.CodeInternal, "mkdir %s: %v", req.GetPath(), err)
 	}
 
 	return &pb.MkdirResponse{}, nil
@@ -116,14 +116,14 @@ func (*Agent) Mount(_ context.Context, req *pb.MountRequest) (*pb.MountResponse,
 	if serial, ok := strings.CutPrefix(source, serialSourcePrefix); ok {
 		resolved, err := resolveVirtioBlkPath(serial, deviceWaitBudget)
 		if err != nil {
-			return nil, rpcErrorf(connect.CodeNotFound, "mount: %v", err)
+			return nil, connect.Errorf(connect.CodeNotFound, "mount: %v", err)
 		}
 
 		source = resolved
 	}
 
 	if err := unix.Mount(source, req.GetDestination(), req.GetType(), flags, data); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal,
+		return nil, connect.Errorf(connect.CodeInternal,
 			"mount %s (%s) on %s: %v", source, req.GetType(), req.GetDestination(), err)
 	}
 
@@ -178,7 +178,7 @@ func (*Agent) WriteFile(_ context.Context, req *pb.WriteFileRequest) (*pb.WriteF
 		// 0o755 is the standard mode for implicitly created parent directories
 		// inside the container filesystem; 0o750 would break non-root workloads.
 		if err := os.MkdirAll(filepath.Dir(path), stdDirMode); err != nil {
-			return nil, rpcErrorf(connect.CodeInternal, "create parents for %s: %v", path, err)
+			return nil, connect.Errorf(connect.CodeInternal, "create parents for %s: %v", path, err)
 		}
 	}
 
@@ -197,17 +197,17 @@ func (*Agent) WriteFile(_ context.Context, req *pb.WriteFileRequest) (*pb.WriteF
 	// the whole guest filesystem over SandboxContext.
 	file, err := os.OpenFile(path, openFlags, mode) // #nosec G304 -- see above
 	if err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "open %s: %v", path, err)
+		return nil, connect.Errorf(connect.CodeInternal, "open %s: %v", path, err)
 	}
 	defer func() { _ = file.Close() }()
 
 	// OpenFile's mode only applies on create; enforce it for existing files.
 	if err := file.Chmod(mode); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "chmod %s: %v", path, err)
+		return nil, connect.Errorf(connect.CodeInternal, "chmod %s: %v", path, err)
 	}
 
 	if _, err := file.Write(req.GetData()); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "write %s: %v", path, err)
+		return nil, connect.Errorf(connect.CodeInternal, "write %s: %v", path, err)
 	}
 
 	return &pb.WriteFileResponse{}, nil

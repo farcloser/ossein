@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/mdlayher/vsock"
 	"golang.org/x/sys/unix"
 
@@ -44,9 +44,9 @@ func (a *Agent) ProxyVsock(_ context.Context, req *pb.ProxyVsockRequest) (*pb.Pr
 		//nolint:contextcheck // see above
 		listener, err = proxyOutOf(req, a.rootfsDest())
 	case pb.ProxyVsockRequest_INTO:
-		return nil, rpcErrorf(connect.CodeUnimplemented, "INTO proxying is not supported")
+		return nil, connect.Errorf(connect.CodeUnimplemented, "INTO proxying is not supported")
 	default:
-		return nil, rpcErrorf(connect.CodeInvalidArgument, "unknown proxy action %v", req.GetAction())
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "unknown proxy action %v", req.GetAction())
 	}
 
 	if err != nil {
@@ -84,7 +84,7 @@ func (a *Agent) StopVsockProxy(_ context.Context, req *pb.StopVsockProxyRequest)
 func proxyOutOf(req *pb.ProxyVsockRequest, rootfs string) (net.Listener, error) {
 	listener, err := vsock.Listen(req.GetVsockPort(), nil)
 	if err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "vsock listen :%d: %v", req.GetVsockPort(), err)
+		return nil, connect.Errorf(connect.CodeInternal, "vsock listen :%d: %v", req.GetVsockPort(), err)
 	}
 
 	go acceptAndProxy(listener, backendDialer(req.GetGuestPath(), rootfs))

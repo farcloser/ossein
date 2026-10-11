@@ -243,7 +243,7 @@ proto:
     # one go.mod entry is the only pin that makes skew impossible. Built here
     # rather than installed, so nothing leaks onto the hermetic PATH.
     mkdir -p build
-    go build -o build/protoc-gen-connect-go connectrpc.com/connect/cmd/protoc-gen-connect-go
+    go build -o build/protoc-gen-connect-go connectrpc.com/connect/v2/cmd/protoc-gen-connect-go
     protoc -I proto \
       --plugin=protoc-gen-connect-go=build/protoc-gen-connect-go \
       --go_out=internal/sandbox --go_opt=paths=source_relative \
@@ -251,7 +251,7 @@ proto:
       --connect-go_out=internal/sandbox --connect-go_opt=paths=source_relative \
       --connect-go_opt=MSandboxContext.proto=github.com/farcloser/ossein/internal/sandbox \
       proto/SandboxContext.proto
-    golangci-lint fmt
+    just do fix go
 
 # ---------------------------------------------------------------------------
 # Benches. Kernels and perf-arm64 come from ../ossein-kernel/build (build them
