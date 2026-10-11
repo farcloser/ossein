@@ -17,7 +17,7 @@ require (
 	github.com/forkcloser/erofs v1.0.2
 	github.com/google/go-containerregistry v0.22.1
 	github.com/mdlayher/vsock v1.3.0
-	github.com/moby/buildkit v0.33.1
+	github.com/moby/buildkit v0.34.0
 	github.com/moby/sys/capability v0.4.0
 	github.com/mycophonic/primordium v0.14.0
 	github.com/opencontainers/runtime-spec v1.3.0
@@ -35,17 +35,18 @@ require (
 	github.com/anchore/go-lzo v0.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/console v1.0.5 // indirect
-	github.com/containerd/containerd/api v1.11.1 // indirect
-	github.com/containerd/containerd/v2 v2.3.6 // indirect
+	github.com/containerd/containerd/api v1.12.0 // indirect
+	github.com/containerd/containerd/v2 v2.4.1 // indirect
 	github.com/containerd/continuity v0.5.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.2.0 // indirect
+	github.com/containerd/log/otel v0.1.0 // indirect
 	github.com/containerd/platforms v1.0.0-rc.5 // indirect
-	github.com/containerd/ttrpc v1.2.9 // indirect
+	github.com/containerd/ttrpc v1.2.10 // indirect
 	github.com/containerd/typeurl/v2 v2.3.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
-	github.com/docker/cli v29.8.0+incompatible // indirect
+	github.com/docker/cli v29.8.2+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.9 // indirect
 	github.com/elliotwutingfeng/asciiset v0.0.0-20260801111138-45c5fff54b41 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
