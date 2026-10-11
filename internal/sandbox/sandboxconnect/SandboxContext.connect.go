@@ -6,1105 +6,612 @@ package sandboxconnect
 
 import (
 	context "context"
-	errors "errors"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 
 	sandbox "github.com/farcloser/ossein/internal/sandbox"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// SandboxContextName is the fully-qualified name of the SandboxContext service.
 	SandboxContextName = "com.apple.containerization.sandbox.v3.SandboxContext"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// SandboxContextMountProcedure is the fully-qualified name of the SandboxContext's Mount RPC.
+	// SandboxContextMountProcedure is the procedure name of the SandboxContext's Mount RPC.
 	SandboxContextMountProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/Mount"
-	// SandboxContextUmountProcedure is the fully-qualified name of the SandboxContext's Umount RPC.
+	// SandboxContextUmountProcedure is the procedure name of the SandboxContext's Umount RPC.
 	SandboxContextUmountProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/Umount"
-	// SandboxContextSetenvProcedure is the fully-qualified name of the SandboxContext's Setenv RPC.
+	// SandboxContextSetenvProcedure is the procedure name of the SandboxContext's Setenv RPC.
 	SandboxContextSetenvProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/Setenv"
-	// SandboxContextGetenvProcedure is the fully-qualified name of the SandboxContext's Getenv RPC.
+	// SandboxContextGetenvProcedure is the procedure name of the SandboxContext's Getenv RPC.
 	SandboxContextGetenvProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/Getenv"
-	// SandboxContextMkdirProcedure is the fully-qualified name of the SandboxContext's Mkdir RPC.
+	// SandboxContextMkdirProcedure is the procedure name of the SandboxContext's Mkdir RPC.
 	SandboxContextMkdirProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/Mkdir"
-	// SandboxContextSysctlProcedure is the fully-qualified name of the SandboxContext's Sysctl RPC.
+	// SandboxContextSysctlProcedure is the procedure name of the SandboxContext's Sysctl RPC.
 	SandboxContextSysctlProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/Sysctl"
-	// SandboxContextSetTimeProcedure is the fully-qualified name of the SandboxContext's SetTime RPC.
+	// SandboxContextSetTimeProcedure is the procedure name of the SandboxContext's SetTime RPC.
 	SandboxContextSetTimeProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/SetTime"
-	// SandboxContextSetupEmulatorProcedure is the fully-qualified name of the SandboxContext's
-	// SetupEmulator RPC.
-	SandboxContextSetupEmulatorProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/SetupEmulator"
-	// SandboxContextWriteFileProcedure is the fully-qualified name of the SandboxContext's WriteFile
+	// SandboxContextSetupEmulatorProcedure is the procedure name of the SandboxContext's SetupEmulator
 	// RPC.
+	SandboxContextSetupEmulatorProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/SetupEmulator"
+	// SandboxContextWriteFileProcedure is the procedure name of the SandboxContext's WriteFile RPC.
 	SandboxContextWriteFileProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/WriteFile"
-	// SandboxContextCopyProcedure is the fully-qualified name of the SandboxContext's Copy RPC.
+	// SandboxContextCopyProcedure is the procedure name of the SandboxContext's Copy RPC.
 	SandboxContextCopyProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/Copy"
-	// SandboxContextStatProcedure is the fully-qualified name of the SandboxContext's Stat RPC.
+	// SandboxContextStatProcedure is the procedure name of the SandboxContext's Stat RPC.
 	SandboxContextStatProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/Stat"
-	// SandboxContextFilesystemOperationProcedure is the fully-qualified name of the SandboxContext's
+	// SandboxContextFilesystemOperationProcedure is the procedure name of the SandboxContext's
 	// FilesystemOperation RPC.
 	SandboxContextFilesystemOperationProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/FilesystemOperation"
-	// SandboxContextCreateProcessProcedure is the fully-qualified name of the SandboxContext's
-	// CreateProcess RPC.
+	// SandboxContextCreateProcessProcedure is the procedure name of the SandboxContext's CreateProcess
+	// RPC.
 	SandboxContextCreateProcessProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/CreateProcess"
-	// SandboxContextDeleteProcessProcedure is the fully-qualified name of the SandboxContext's
-	// DeleteProcess RPC.
+	// SandboxContextDeleteProcessProcedure is the procedure name of the SandboxContext's DeleteProcess
+	// RPC.
 	SandboxContextDeleteProcessProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/DeleteProcess"
-	// SandboxContextStartProcessProcedure is the fully-qualified name of the SandboxContext's
-	// StartProcess RPC.
+	// SandboxContextStartProcessProcedure is the procedure name of the SandboxContext's StartProcess
+	// RPC.
 	SandboxContextStartProcessProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/StartProcess"
-	// SandboxContextKillProcessProcedure is the fully-qualified name of the SandboxContext's
-	// KillProcess RPC.
+	// SandboxContextKillProcessProcedure is the procedure name of the SandboxContext's KillProcess RPC.
 	SandboxContextKillProcessProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/KillProcess"
-	// SandboxContextWaitProcessProcedure is the fully-qualified name of the SandboxContext's
-	// WaitProcess RPC.
+	// SandboxContextWaitProcessProcedure is the procedure name of the SandboxContext's WaitProcess RPC.
 	SandboxContextWaitProcessProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/WaitProcess"
-	// SandboxContextResizeProcessProcedure is the fully-qualified name of the SandboxContext's
-	// ResizeProcess RPC.
+	// SandboxContextResizeProcessProcedure is the procedure name of the SandboxContext's ResizeProcess
+	// RPC.
 	SandboxContextResizeProcessProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/ResizeProcess"
-	// SandboxContextCloseProcessStdinProcedure is the fully-qualified name of the SandboxContext's
+	// SandboxContextCloseProcessStdinProcedure is the procedure name of the SandboxContext's
 	// CloseProcessStdin RPC.
 	SandboxContextCloseProcessStdinProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/CloseProcessStdin"
-	// SandboxContextContainerStatisticsProcedure is the fully-qualified name of the SandboxContext's
+	// SandboxContextContainerStatisticsProcedure is the procedure name of the SandboxContext's
 	// ContainerStatistics RPC.
 	SandboxContextContainerStatisticsProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/ContainerStatistics"
-	// SandboxContextProxyVsockProcedure is the fully-qualified name of the SandboxContext's ProxyVsock
-	// RPC.
+	// SandboxContextProxyVsockProcedure is the procedure name of the SandboxContext's ProxyVsock RPC.
 	SandboxContextProxyVsockProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/ProxyVsock"
-	// SandboxContextStopVsockProxyProcedure is the fully-qualified name of the SandboxContext's
+	// SandboxContextStopVsockProxyProcedure is the procedure name of the SandboxContext's
 	// StopVsockProxy RPC.
 	SandboxContextStopVsockProxyProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/StopVsockProxy"
-	// SandboxContextIpLinkSetProcedure is the fully-qualified name of the SandboxContext's IpLinkSet
-	// RPC.
+	// SandboxContextIpLinkSetProcedure is the procedure name of the SandboxContext's IpLinkSet RPC.
 	SandboxContextIpLinkSetProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/IpLinkSet"
-	// SandboxContextIpAddrAddProcedure is the fully-qualified name of the SandboxContext's IpAddrAdd
-	// RPC.
+	// SandboxContextIpAddrAddProcedure is the procedure name of the SandboxContext's IpAddrAdd RPC.
 	SandboxContextIpAddrAddProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/IpAddrAdd"
-	// SandboxContextIpRouteAddLinkProcedure is the fully-qualified name of the SandboxContext's
+	// SandboxContextIpRouteAddLinkProcedure is the procedure name of the SandboxContext's
 	// IpRouteAddLink RPC.
 	SandboxContextIpRouteAddLinkProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/IpRouteAddLink"
-	// SandboxContextIpRouteAddDefaultProcedure is the fully-qualified name of the SandboxContext's
+	// SandboxContextIpRouteAddDefaultProcedure is the procedure name of the SandboxContext's
 	// IpRouteAddDefault RPC.
 	SandboxContextIpRouteAddDefaultProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/IpRouteAddDefault"
-	// SandboxContextConfigureDnsProcedure is the fully-qualified name of the SandboxContext's
-	// ConfigureDns RPC.
+	// SandboxContextConfigureDnsProcedure is the procedure name of the SandboxContext's ConfigureDns
+	// RPC.
 	SandboxContextConfigureDnsProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/ConfigureDns"
-	// SandboxContextConfigureHostsProcedure is the fully-qualified name of the SandboxContext's
+	// SandboxContextConfigureHostsProcedure is the procedure name of the SandboxContext's
 	// ConfigureHosts RPC.
 	SandboxContextConfigureHostsProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/ConfigureHosts"
-	// SandboxContextSyncProcedure is the fully-qualified name of the SandboxContext's Sync RPC.
+	// SandboxContextSyncProcedure is the procedure name of the SandboxContext's Sync RPC.
 	SandboxContextSyncProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/Sync"
-	// SandboxContextKillProcedure is the fully-qualified name of the SandboxContext's Kill RPC.
+	// SandboxContextKillProcedure is the procedure name of the SandboxContext's Kill RPC.
 	SandboxContextKillProcedure = "/com.apple.containerization.sandbox.v3.SandboxContext/Kill"
+)
+
+var (
+	sandboxContextMountSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     sandbox.File_SandboxContext_proto.Services().ByName("SandboxContext").Methods().ByName("Mount"),
+			Procedure:  SandboxContextMountProcedure,
+		}
+	})
+	sandboxContextUmountSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("Umount"),
+			Procedure: SandboxContextUmountProcedure,
+		}
+	})
+	sandboxContextSetenvSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("Setenv"),
+			Procedure: SandboxContextSetenvProcedure,
+		}
+	})
+	sandboxContextGetenvSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("Getenv"),
+			Procedure: SandboxContextGetenvProcedure,
+		}
+	})
+	sandboxContextMkdirSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     sandbox.File_SandboxContext_proto.Services().ByName("SandboxContext").Methods().ByName("Mkdir"),
+			Procedure:  SandboxContextMkdirProcedure,
+		}
+	})
+	sandboxContextSysctlSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("Sysctl"),
+			Procedure: SandboxContextSysctlProcedure,
+		}
+	})
+	sandboxContextSetTimeSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("SetTime"),
+			Procedure: SandboxContextSetTimeProcedure,
+		}
+	})
+	sandboxContextSetupEmulatorSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("SetupEmulator"),
+			Procedure: SandboxContextSetupEmulatorProcedure,
+		}
+	})
+	sandboxContextWriteFileSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("WriteFile"),
+			Procedure: SandboxContextWriteFileProcedure,
+		}
+	})
+	sandboxContextCopySpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeServer,
+			Schema:     sandbox.File_SandboxContext_proto.Services().ByName("SandboxContext").Methods().ByName("Copy"),
+			Procedure:  SandboxContextCopyProcedure,
+		}
+	})
+	sandboxContextStatSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     sandbox.File_SandboxContext_proto.Services().ByName("SandboxContext").Methods().ByName("Stat"),
+			Procedure:  SandboxContextStatProcedure,
+		}
+	})
+	sandboxContextFilesystemOperationSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("FilesystemOperation"),
+			Procedure: SandboxContextFilesystemOperationProcedure,
+		}
+	})
+	sandboxContextCreateProcessSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("CreateProcess"),
+			Procedure: SandboxContextCreateProcessProcedure,
+		}
+	})
+	sandboxContextDeleteProcessSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("DeleteProcess"),
+			Procedure: SandboxContextDeleteProcessProcedure,
+		}
+	})
+	sandboxContextStartProcessSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("StartProcess"),
+			Procedure: SandboxContextStartProcessProcedure,
+		}
+	})
+	sandboxContextKillProcessSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("KillProcess"),
+			Procedure: SandboxContextKillProcessProcedure,
+		}
+	})
+	sandboxContextWaitProcessSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("WaitProcess"),
+			Procedure: SandboxContextWaitProcessProcedure,
+		}
+	})
+	sandboxContextResizeProcessSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("ResizeProcess"),
+			Procedure: SandboxContextResizeProcessProcedure,
+		}
+	})
+	sandboxContextCloseProcessStdinSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("CloseProcessStdin"),
+			Procedure: SandboxContextCloseProcessStdinProcedure,
+		}
+	})
+	sandboxContextContainerStatisticsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("ContainerStatistics"),
+			Procedure: SandboxContextContainerStatisticsProcedure,
+		}
+	})
+	sandboxContextProxyVsockSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("ProxyVsock"),
+			Procedure: SandboxContextProxyVsockProcedure,
+		}
+	})
+	sandboxContextStopVsockProxySpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("StopVsockProxy"),
+			Procedure: SandboxContextStopVsockProxyProcedure,
+		}
+	})
+	sandboxContextIpLinkSetSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("IpLinkSet"),
+			Procedure: SandboxContextIpLinkSetProcedure,
+		}
+	})
+	sandboxContextIpAddrAddSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("IpAddrAdd"),
+			Procedure: SandboxContextIpAddrAddProcedure,
+		}
+	})
+	sandboxContextIpRouteAddLinkSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("IpRouteAddLink"),
+			Procedure: SandboxContextIpRouteAddLinkProcedure,
+		}
+	})
+	sandboxContextIpRouteAddDefaultSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("IpRouteAddDefault"),
+			Procedure: SandboxContextIpRouteAddDefaultProcedure,
+		}
+	})
+	sandboxContextConfigureDnsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("ConfigureDns"),
+			Procedure: SandboxContextConfigureDnsProcedure,
+		}
+	})
+	sandboxContextConfigureHostsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema: sandbox.File_SandboxContext_proto.Services().
+				ByName("SandboxContext").
+				Methods().
+				ByName("ConfigureHosts"),
+			Procedure: SandboxContextConfigureHostsProcedure,
+		}
+	})
+	sandboxContextSyncSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     sandbox.File_SandboxContext_proto.Services().ByName("SandboxContext").Methods().ByName("Sync"),
+			Procedure:  SandboxContextSyncProcedure,
+		}
+	})
+	sandboxContextKillSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     sandbox.File_SandboxContext_proto.Services().ByName("SandboxContext").Methods().ByName("Kill"),
+			Procedure:  SandboxContextKillProcedure,
+		}
+	})
 )
 
 // SandboxContextClient is a client for the com.apple.containerization.sandbox.v3.SandboxContext
 // service.
 type SandboxContextClient interface {
 	// Mount a filesystem.
-	Mount(context.Context, *connect.Request[sandbox.MountRequest]) (*connect.Response[sandbox.MountResponse], error)
+	Mount(context.Context, *sandbox.MountRequest) (*sandbox.MountResponse, error)
 	// Unmount a filesystem.
-	Umount(context.Context, *connect.Request[sandbox.UmountRequest]) (*connect.Response[sandbox.UmountResponse], error)
+	Umount(context.Context, *sandbox.UmountRequest) (*sandbox.UmountResponse, error)
 	// Set an environment variable on the init process.
-	Setenv(context.Context, *connect.Request[sandbox.SetenvRequest]) (*connect.Response[sandbox.SetenvResponse], error)
+	Setenv(context.Context, *sandbox.SetenvRequest) (*sandbox.SetenvResponse, error)
 	// Get an environment variable from the init process.
-	Getenv(context.Context, *connect.Request[sandbox.GetenvRequest]) (*connect.Response[sandbox.GetenvResponse], error)
+	Getenv(context.Context, *sandbox.GetenvRequest) (*sandbox.GetenvResponse, error)
 	// Create a new directory inside the sandbox.
-	Mkdir(context.Context, *connect.Request[sandbox.MkdirRequest]) (*connect.Response[sandbox.MkdirResponse], error)
+	Mkdir(context.Context, *sandbox.MkdirRequest) (*sandbox.MkdirResponse, error)
 	// Set sysctls in the context of the sandbox.
-	Sysctl(context.Context, *connect.Request[sandbox.SysctlRequest]) (*connect.Response[sandbox.SysctlResponse], error)
+	Sysctl(context.Context, *sandbox.SysctlRequest) (*sandbox.SysctlResponse, error)
 	// Set time in the guest.
-	SetTime(
-		context.Context,
-		*connect.Request[sandbox.SetTimeRequest],
-	) (*connect.Response[sandbox.SetTimeResponse], error)
+	SetTime(context.Context, *sandbox.SetTimeRequest) (*sandbox.SetTimeResponse, error)
 	// Set up an emulator in the guest for a specific binary format.
-	SetupEmulator(
-		context.Context,
-		*connect.Request[sandbox.SetupEmulatorRequest],
-	) (*connect.Response[sandbox.SetupEmulatorResponse], error)
+	SetupEmulator(context.Context, *sandbox.SetupEmulatorRequest) (*sandbox.SetupEmulatorResponse, error)
 	// Write data to an existing or new file.
-	WriteFile(
-		context.Context,
-		*connect.Request[sandbox.WriteFileRequest],
-	) (*connect.Response[sandbox.WriteFileResponse], error)
+	WriteFile(context.Context, *sandbox.WriteFileRequest) (*sandbox.WriteFileResponse, error)
 	// Copy a file or directory between the host and guest.
 	// Data transfer happens over a dedicated vsock connection;
 	// the gRPC stream is used only for control/metadata.
-	Copy(
-		context.Context,
-		*connect.Request[sandbox.CopyRequest],
-	) (*connect.ServerStreamForClient[sandbox.CopyResponse], error)
+	Copy(context.Context, *sandbox.CopyRequest) (SandboxContextCopyClientStream, error)
 	// Stat a path in the guest filesystem.
-	Stat(context.Context, *connect.Request[sandbox.StatRequest]) (*connect.Response[sandbox.StatResponse], error)
+	Stat(context.Context, *sandbox.StatRequest) (*sandbox.StatResponse, error)
 	// Perform a filesystem operation on a mounted filesystem.
 	FilesystemOperation(
 		context.Context,
-		*connect.Request[sandbox.FilesystemOperationRequest],
-	) (*connect.Response[sandbox.FilesystemOperationResponse], error)
+		*sandbox.FilesystemOperationRequest,
+	) (*sandbox.FilesystemOperationResponse, error)
 	// Create a new process inside the container.
-	CreateProcess(
-		context.Context,
-		*connect.Request[sandbox.CreateProcessRequest],
-	) (*connect.Response[sandbox.CreateProcessResponse], error)
+	CreateProcess(context.Context, *sandbox.CreateProcessRequest) (*sandbox.CreateProcessResponse, error)
 	// Delete an existing process inside the container.
-	DeleteProcess(
-		context.Context,
-		*connect.Request[sandbox.DeleteProcessRequest],
-	) (*connect.Response[sandbox.DeleteProcessResponse], error)
+	DeleteProcess(context.Context, *sandbox.DeleteProcessRequest) (*sandbox.DeleteProcessResponse, error)
 	// Start the provided process.
-	StartProcess(
-		context.Context,
-		*connect.Request[sandbox.StartProcessRequest],
-	) (*connect.Response[sandbox.StartProcessResponse], error)
+	StartProcess(context.Context, *sandbox.StartProcessRequest) (*sandbox.StartProcessResponse, error)
 	// Send a signal to the provided process.
-	KillProcess(
-		context.Context,
-		*connect.Request[sandbox.KillProcessRequest],
-	) (*connect.Response[sandbox.KillProcessResponse], error)
+	KillProcess(context.Context, *sandbox.KillProcessRequest) (*sandbox.KillProcessResponse, error)
 	// Wait for a process to exit and return the exit code.
-	WaitProcess(
-		context.Context,
-		*connect.Request[sandbox.WaitProcessRequest],
-	) (*connect.Response[sandbox.WaitProcessResponse], error)
+	WaitProcess(context.Context, *sandbox.WaitProcessRequest) (*sandbox.WaitProcessResponse, error)
 	// Resize the tty of a given process. This will error if the process does
 	// not have a pty allocated.
-	ResizeProcess(
-		context.Context,
-		*connect.Request[sandbox.ResizeProcessRequest],
-	) (*connect.Response[sandbox.ResizeProcessResponse], error)
+	ResizeProcess(context.Context, *sandbox.ResizeProcessRequest) (*sandbox.ResizeProcessResponse, error)
 	// Close IO for a given process.
-	CloseProcessStdin(
-		context.Context,
-		*connect.Request[sandbox.CloseProcessStdinRequest],
-	) (*connect.Response[sandbox.CloseProcessStdinResponse], error)
+	CloseProcessStdin(context.Context, *sandbox.CloseProcessStdinRequest) (*sandbox.CloseProcessStdinResponse, error)
 	// Get statistics for containers.
 	ContainerStatistics(
 		context.Context,
-		*connect.Request[sandbox.ContainerStatisticsRequest],
-	) (*connect.Response[sandbox.ContainerStatisticsResponse], error)
+		*sandbox.ContainerStatisticsRequest,
+	) (*sandbox.ContainerStatisticsResponse, error)
 	// Proxy a vsock port to a unix domain socket in the guest, or vice versa.
-	ProxyVsock(
-		context.Context,
-		*connect.Request[sandbox.ProxyVsockRequest],
-	) (*connect.Response[sandbox.ProxyVsockResponse], error)
+	ProxyVsock(context.Context, *sandbox.ProxyVsockRequest) (*sandbox.ProxyVsockResponse, error)
 	// Stop a vsock proxy to a unix domain socket.
-	StopVsockProxy(
-		context.Context,
-		*connect.Request[sandbox.StopVsockProxyRequest],
-	) (*connect.Response[sandbox.StopVsockProxyResponse], error)
+	StopVsockProxy(context.Context, *sandbox.StopVsockProxyRequest) (*sandbox.StopVsockProxyResponse, error)
 	// Set the link state of a network interface.
-	IpLinkSet(
-		context.Context,
-		*connect.Request[sandbox.IpLinkSetRequest],
-	) (*connect.Response[sandbox.IpLinkSetResponse], error)
+	IpLinkSet(context.Context, *sandbox.IpLinkSetRequest) (*sandbox.IpLinkSetResponse, error)
 	// Add an IPv4 address to a network interface.
-	IpAddrAdd(
-		context.Context,
-		*connect.Request[sandbox.IpAddrAddRequest],
-	) (*connect.Response[sandbox.IpAddrAddResponse], error)
+	IpAddrAdd(context.Context, *sandbox.IpAddrAddRequest) (*sandbox.IpAddrAddResponse, error)
 	// Add an IP route for a network interface.
-	IpRouteAddLink(
-		context.Context,
-		*connect.Request[sandbox.IpRouteAddLinkRequest],
-	) (*connect.Response[sandbox.IpRouteAddLinkResponse], error)
+	IpRouteAddLink(context.Context, *sandbox.IpRouteAddLinkRequest) (*sandbox.IpRouteAddLinkResponse, error)
 	// Add an IP route for a network interface.
-	IpRouteAddDefault(
-		context.Context,
-		*connect.Request[sandbox.IpRouteAddDefaultRequest],
-	) (*connect.Response[sandbox.IpRouteAddDefaultResponse], error)
+	IpRouteAddDefault(context.Context, *sandbox.IpRouteAddDefaultRequest) (*sandbox.IpRouteAddDefaultResponse, error)
 	// Configure DNS resolver.
-	ConfigureDns(
-		context.Context,
-		*connect.Request[sandbox.ConfigureDnsRequest],
-	) (*connect.Response[sandbox.ConfigureDnsResponse], error)
+	ConfigureDns(context.Context, *sandbox.ConfigureDnsRequest) (*sandbox.ConfigureDnsResponse, error)
 	// Configure /etc/hosts.
-	ConfigureHosts(
-		context.Context,
-		*connect.Request[sandbox.ConfigureHostsRequest],
-	) (*connect.Response[sandbox.ConfigureHostsResponse], error)
+	ConfigureHosts(context.Context, *sandbox.ConfigureHostsRequest) (*sandbox.ConfigureHostsResponse, error)
 	// Perform the sync syscall.
-	Sync(context.Context, *connect.Request[sandbox.SyncRequest]) (*connect.Response[sandbox.SyncResponse], error)
+	Sync(context.Context, *sandbox.SyncRequest) (*sandbox.SyncResponse, error)
 	// Send a signal to a process via the PID.
-	Kill(context.Context, *connect.Request[sandbox.KillRequest]) (*connect.Response[sandbox.KillResponse], error)
+	Kill(context.Context, *sandbox.KillRequest) (*sandbox.KillResponse, error)
 }
 
 // NewSandboxContextClient constructs a client for the
-// com.apple.containerization.sandbox.v3.SandboxContext service. By default, it uses the Connect
-// protocol with the binary Protobuf Codec, asks for gzipped responses, and sends uncompressed
-// requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
-// connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewSandboxContextClient(
-	httpClient connect.HTTPClient,
-	baseURL string,
-	opts ...connect.ClientOption,
-) SandboxContextClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	sandboxContextMethods := sandbox.File_SandboxContext_proto.Services().ByName("SandboxContext").Methods()
-	return &sandboxContextClient{
-		mount: connect.NewClient[sandbox.MountRequest, sandbox.MountResponse](
-			httpClient,
-			baseURL+SandboxContextMountProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("Mount")),
-			connect.WithClientOptions(opts...),
-		),
-		umount: connect.NewClient[sandbox.UmountRequest, sandbox.UmountResponse](
-			httpClient,
-			baseURL+SandboxContextUmountProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("Umount")),
-			connect.WithClientOptions(opts...),
-		),
-		setenv: connect.NewClient[sandbox.SetenvRequest, sandbox.SetenvResponse](
-			httpClient,
-			baseURL+SandboxContextSetenvProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("Setenv")),
-			connect.WithClientOptions(opts...),
-		),
-		getenv: connect.NewClient[sandbox.GetenvRequest, sandbox.GetenvResponse](
-			httpClient,
-			baseURL+SandboxContextGetenvProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("Getenv")),
-			connect.WithClientOptions(opts...),
-		),
-		mkdir: connect.NewClient[sandbox.MkdirRequest, sandbox.MkdirResponse](
-			httpClient,
-			baseURL+SandboxContextMkdirProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("Mkdir")),
-			connect.WithClientOptions(opts...),
-		),
-		sysctl: connect.NewClient[sandbox.SysctlRequest, sandbox.SysctlResponse](
-			httpClient,
-			baseURL+SandboxContextSysctlProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("Sysctl")),
-			connect.WithClientOptions(opts...),
-		),
-		setTime: connect.NewClient[sandbox.SetTimeRequest, sandbox.SetTimeResponse](
-			httpClient,
-			baseURL+SandboxContextSetTimeProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("SetTime")),
-			connect.WithClientOptions(opts...),
-		),
-		setupEmulator: connect.NewClient[sandbox.SetupEmulatorRequest, sandbox.SetupEmulatorResponse](
-			httpClient,
-			baseURL+SandboxContextSetupEmulatorProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("SetupEmulator")),
-			connect.WithClientOptions(opts...),
-		),
-		writeFile: connect.NewClient[sandbox.WriteFileRequest, sandbox.WriteFileResponse](
-			httpClient,
-			baseURL+SandboxContextWriteFileProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("WriteFile")),
-			connect.WithClientOptions(opts...),
-		),
-		copy: connect.NewClient[sandbox.CopyRequest, sandbox.CopyResponse](
-			httpClient,
-			baseURL+SandboxContextCopyProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("Copy")),
-			connect.WithClientOptions(opts...),
-		),
-		stat: connect.NewClient[sandbox.StatRequest, sandbox.StatResponse](
-			httpClient,
-			baseURL+SandboxContextStatProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("Stat")),
-			connect.WithClientOptions(opts...),
-		),
-		filesystemOperation: connect.NewClient[sandbox.FilesystemOperationRequest, sandbox.FilesystemOperationResponse](
-			httpClient,
-			baseURL+SandboxContextFilesystemOperationProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("FilesystemOperation")),
-			connect.WithClientOptions(opts...),
-		),
-		createProcess: connect.NewClient[sandbox.CreateProcessRequest, sandbox.CreateProcessResponse](
-			httpClient,
-			baseURL+SandboxContextCreateProcessProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("CreateProcess")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteProcess: connect.NewClient[sandbox.DeleteProcessRequest, sandbox.DeleteProcessResponse](
-			httpClient,
-			baseURL+SandboxContextDeleteProcessProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("DeleteProcess")),
-			connect.WithClientOptions(opts...),
-		),
-		startProcess: connect.NewClient[sandbox.StartProcessRequest, sandbox.StartProcessResponse](
-			httpClient,
-			baseURL+SandboxContextStartProcessProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("StartProcess")),
-			connect.WithClientOptions(opts...),
-		),
-		killProcess: connect.NewClient[sandbox.KillProcessRequest, sandbox.KillProcessResponse](
-			httpClient,
-			baseURL+SandboxContextKillProcessProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("KillProcess")),
-			connect.WithClientOptions(opts...),
-		),
-		waitProcess: connect.NewClient[sandbox.WaitProcessRequest, sandbox.WaitProcessResponse](
-			httpClient,
-			baseURL+SandboxContextWaitProcessProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("WaitProcess")),
-			connect.WithClientOptions(opts...),
-		),
-		resizeProcess: connect.NewClient[sandbox.ResizeProcessRequest, sandbox.ResizeProcessResponse](
-			httpClient,
-			baseURL+SandboxContextResizeProcessProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("ResizeProcess")),
-			connect.WithClientOptions(opts...),
-		),
-		closeProcessStdin: connect.NewClient[sandbox.CloseProcessStdinRequest, sandbox.CloseProcessStdinResponse](
-			httpClient,
-			baseURL+SandboxContextCloseProcessStdinProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("CloseProcessStdin")),
-			connect.WithClientOptions(opts...),
-		),
-		containerStatistics: connect.NewClient[sandbox.ContainerStatisticsRequest, sandbox.ContainerStatisticsResponse](
-			httpClient,
-			baseURL+SandboxContextContainerStatisticsProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("ContainerStatistics")),
-			connect.WithClientOptions(opts...),
-		),
-		proxyVsock: connect.NewClient[sandbox.ProxyVsockRequest, sandbox.ProxyVsockResponse](
-			httpClient,
-			baseURL+SandboxContextProxyVsockProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("ProxyVsock")),
-			connect.WithClientOptions(opts...),
-		),
-		stopVsockProxy: connect.NewClient[sandbox.StopVsockProxyRequest, sandbox.StopVsockProxyResponse](
-			httpClient,
-			baseURL+SandboxContextStopVsockProxyProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("StopVsockProxy")),
-			connect.WithClientOptions(opts...),
-		),
-		ipLinkSet: connect.NewClient[sandbox.IpLinkSetRequest, sandbox.IpLinkSetResponse](
-			httpClient,
-			baseURL+SandboxContextIpLinkSetProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("IpLinkSet")),
-			connect.WithClientOptions(opts...),
-		),
-		ipAddrAdd: connect.NewClient[sandbox.IpAddrAddRequest, sandbox.IpAddrAddResponse](
-			httpClient,
-			baseURL+SandboxContextIpAddrAddProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("IpAddrAdd")),
-			connect.WithClientOptions(opts...),
-		),
-		ipRouteAddLink: connect.NewClient[sandbox.IpRouteAddLinkRequest, sandbox.IpRouteAddLinkResponse](
-			httpClient,
-			baseURL+SandboxContextIpRouteAddLinkProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("IpRouteAddLink")),
-			connect.WithClientOptions(opts...),
-		),
-		ipRouteAddDefault: connect.NewClient[sandbox.IpRouteAddDefaultRequest, sandbox.IpRouteAddDefaultResponse](
-			httpClient,
-			baseURL+SandboxContextIpRouteAddDefaultProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("IpRouteAddDefault")),
-			connect.WithClientOptions(opts...),
-		),
-		configureDns: connect.NewClient[sandbox.ConfigureDnsRequest, sandbox.ConfigureDnsResponse](
-			httpClient,
-			baseURL+SandboxContextConfigureDnsProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("ConfigureDns")),
-			connect.WithClientOptions(opts...),
-		),
-		configureHosts: connect.NewClient[sandbox.ConfigureHostsRequest, sandbox.ConfigureHostsResponse](
-			httpClient,
-			baseURL+SandboxContextConfigureHostsProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("ConfigureHosts")),
-			connect.WithClientOptions(opts...),
-		),
-		sync: connect.NewClient[sandbox.SyncRequest, sandbox.SyncResponse](
-			httpClient,
-			baseURL+SandboxContextSyncProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("Sync")),
-			connect.WithClientOptions(opts...),
-		),
-		kill: connect.NewClient[sandbox.KillRequest, sandbox.KillResponse](
-			httpClient,
-			baseURL+SandboxContextKillProcedure,
-			connect.WithSchema(sandboxContextMethods.ByName("Kill")),
-			connect.WithClientOptions(opts...),
-		),
+// com.apple.containerization.sandbox.v3.SandboxContext service. Multiple service clients may share
+// a single connect.Client.
+func NewSandboxContextClient(client *connect.Client) SandboxContextClient {
+	return &sandboxContextClient{client: client}
+}
+
+// SandboxContextCopyClientStream is the client stream for the SandboxContext's Copy RPC.
+type SandboxContextCopyClientStream struct {
+	stream connect.ClientStream
+}
+
+// Receive returns the next response message from the server.
+func (s SandboxContextCopyClientStream) Receive() (*sandbox.CopyResponse, error) {
+	var res sandbox.CopyResponse
+	if err := s.stream.Receive(&res); err != nil {
+		return nil, err
 	}
+	return &res, nil
 }
 
-// sandboxContextClient implements SandboxContextClient.
-type sandboxContextClient struct {
-	mount               *connect.Client[sandbox.MountRequest, sandbox.MountResponse]
-	umount              *connect.Client[sandbox.UmountRequest, sandbox.UmountResponse]
-	setenv              *connect.Client[sandbox.SetenvRequest, sandbox.SetenvResponse]
-	getenv              *connect.Client[sandbox.GetenvRequest, sandbox.GetenvResponse]
-	mkdir               *connect.Client[sandbox.MkdirRequest, sandbox.MkdirResponse]
-	sysctl              *connect.Client[sandbox.SysctlRequest, sandbox.SysctlResponse]
-	setTime             *connect.Client[sandbox.SetTimeRequest, sandbox.SetTimeResponse]
-	setupEmulator       *connect.Client[sandbox.SetupEmulatorRequest, sandbox.SetupEmulatorResponse]
-	writeFile           *connect.Client[sandbox.WriteFileRequest, sandbox.WriteFileResponse]
-	copy                *connect.Client[sandbox.CopyRequest, sandbox.CopyResponse]
-	stat                *connect.Client[sandbox.StatRequest, sandbox.StatResponse]
-	filesystemOperation *connect.Client[sandbox.FilesystemOperationRequest, sandbox.FilesystemOperationResponse]
-	createProcess       *connect.Client[sandbox.CreateProcessRequest, sandbox.CreateProcessResponse]
-	deleteProcess       *connect.Client[sandbox.DeleteProcessRequest, sandbox.DeleteProcessResponse]
-	startProcess        *connect.Client[sandbox.StartProcessRequest, sandbox.StartProcessResponse]
-	killProcess         *connect.Client[sandbox.KillProcessRequest, sandbox.KillProcessResponse]
-	waitProcess         *connect.Client[sandbox.WaitProcessRequest, sandbox.WaitProcessResponse]
-	resizeProcess       *connect.Client[sandbox.ResizeProcessRequest, sandbox.ResizeProcessResponse]
-	closeProcessStdin   *connect.Client[sandbox.CloseProcessStdinRequest, sandbox.CloseProcessStdinResponse]
-	containerStatistics *connect.Client[sandbox.ContainerStatisticsRequest, sandbox.ContainerStatisticsResponse]
-	proxyVsock          *connect.Client[sandbox.ProxyVsockRequest, sandbox.ProxyVsockResponse]
-	stopVsockProxy      *connect.Client[sandbox.StopVsockProxyRequest, sandbox.StopVsockProxyResponse]
-	ipLinkSet           *connect.Client[sandbox.IpLinkSetRequest, sandbox.IpLinkSetResponse]
-	ipAddrAdd           *connect.Client[sandbox.IpAddrAddRequest, sandbox.IpAddrAddResponse]
-	ipRouteAddLink      *connect.Client[sandbox.IpRouteAddLinkRequest, sandbox.IpRouteAddLinkResponse]
-	ipRouteAddDefault   *connect.Client[sandbox.IpRouteAddDefaultRequest, sandbox.IpRouteAddDefaultResponse]
-	configureDns        *connect.Client[sandbox.ConfigureDnsRequest, sandbox.ConfigureDnsResponse]
-	configureHosts      *connect.Client[sandbox.ConfigureHostsRequest, sandbox.ConfigureHostsResponse]
-	sync                *connect.Client[sandbox.SyncRequest, sandbox.SyncResponse]
-	kill                *connect.Client[sandbox.KillRequest, sandbox.KillResponse]
-}
-
-// Mount calls com.apple.containerization.sandbox.v3.SandboxContext.Mount.
-func (c *sandboxContextClient) Mount(
-	ctx context.Context,
-	req *connect.Request[sandbox.MountRequest],
-) (*connect.Response[sandbox.MountResponse], error) {
-	return c.mount.CallUnary(ctx, req)
-}
-
-// Umount calls com.apple.containerization.sandbox.v3.SandboxContext.Umount.
-func (c *sandboxContextClient) Umount(
-	ctx context.Context,
-	req *connect.Request[sandbox.UmountRequest],
-) (*connect.Response[sandbox.UmountResponse], error) {
-	return c.umount.CallUnary(ctx, req)
-}
-
-// Setenv calls com.apple.containerization.sandbox.v3.SandboxContext.Setenv.
-func (c *sandboxContextClient) Setenv(
-	ctx context.Context,
-	req *connect.Request[sandbox.SetenvRequest],
-) (*connect.Response[sandbox.SetenvResponse], error) {
-	return c.setenv.CallUnary(ctx, req)
-}
-
-// Getenv calls com.apple.containerization.sandbox.v3.SandboxContext.Getenv.
-func (c *sandboxContextClient) Getenv(
-	ctx context.Context,
-	req *connect.Request[sandbox.GetenvRequest],
-) (*connect.Response[sandbox.GetenvResponse], error) {
-	return c.getenv.CallUnary(ctx, req)
-}
-
-// Mkdir calls com.apple.containerization.sandbox.v3.SandboxContext.Mkdir.
-func (c *sandboxContextClient) Mkdir(
-	ctx context.Context,
-	req *connect.Request[sandbox.MkdirRequest],
-) (*connect.Response[sandbox.MkdirResponse], error) {
-	return c.mkdir.CallUnary(ctx, req)
-}
-
-// Sysctl calls com.apple.containerization.sandbox.v3.SandboxContext.Sysctl.
-func (c *sandboxContextClient) Sysctl(
-	ctx context.Context,
-	req *connect.Request[sandbox.SysctlRequest],
-) (*connect.Response[sandbox.SysctlResponse], error) {
-	return c.sysctl.CallUnary(ctx, req)
-}
-
-// SetTime calls com.apple.containerization.sandbox.v3.SandboxContext.SetTime.
-func (c *sandboxContextClient) SetTime(
-	ctx context.Context,
-	req *connect.Request[sandbox.SetTimeRequest],
-) (*connect.Response[sandbox.SetTimeResponse], error) {
-	return c.setTime.CallUnary(ctx, req)
-}
-
-// SetupEmulator calls com.apple.containerization.sandbox.v3.SandboxContext.SetupEmulator.
-func (c *sandboxContextClient) SetupEmulator(
-	ctx context.Context,
-	req *connect.Request[sandbox.SetupEmulatorRequest],
-) (*connect.Response[sandbox.SetupEmulatorResponse], error) {
-	return c.setupEmulator.CallUnary(ctx, req)
-}
-
-// WriteFile calls com.apple.containerization.sandbox.v3.SandboxContext.WriteFile.
-func (c *sandboxContextClient) WriteFile(
-	ctx context.Context,
-	req *connect.Request[sandbox.WriteFileRequest],
-) (*connect.Response[sandbox.WriteFileResponse], error) {
-	return c.writeFile.CallUnary(ctx, req)
-}
-
-// Copy calls com.apple.containerization.sandbox.v3.SandboxContext.Copy.
-func (c *sandboxContextClient) Copy(
-	ctx context.Context,
-	req *connect.Request[sandbox.CopyRequest],
-) (*connect.ServerStreamForClient[sandbox.CopyResponse], error) {
-	return c.copy.CallServerStream(ctx, req)
-}
-
-// Stat calls com.apple.containerization.sandbox.v3.SandboxContext.Stat.
-func (c *sandboxContextClient) Stat(
-	ctx context.Context,
-	req *connect.Request[sandbox.StatRequest],
-) (*connect.Response[sandbox.StatResponse], error) {
-	return c.stat.CallUnary(ctx, req)
-}
-
-// FilesystemOperation calls
-// com.apple.containerization.sandbox.v3.SandboxContext.FilesystemOperation.
-func (c *sandboxContextClient) FilesystemOperation(
-	ctx context.Context,
-	req *connect.Request[sandbox.FilesystemOperationRequest],
-) (*connect.Response[sandbox.FilesystemOperationResponse], error) {
-	return c.filesystemOperation.CallUnary(ctx, req)
-}
-
-// CreateProcess calls com.apple.containerization.sandbox.v3.SandboxContext.CreateProcess.
-func (c *sandboxContextClient) CreateProcess(
-	ctx context.Context,
-	req *connect.Request[sandbox.CreateProcessRequest],
-) (*connect.Response[sandbox.CreateProcessResponse], error) {
-	return c.createProcess.CallUnary(ctx, req)
-}
-
-// DeleteProcess calls com.apple.containerization.sandbox.v3.SandboxContext.DeleteProcess.
-func (c *sandboxContextClient) DeleteProcess(
-	ctx context.Context,
-	req *connect.Request[sandbox.DeleteProcessRequest],
-) (*connect.Response[sandbox.DeleteProcessResponse], error) {
-	return c.deleteProcess.CallUnary(ctx, req)
-}
-
-// StartProcess calls com.apple.containerization.sandbox.v3.SandboxContext.StartProcess.
-func (c *sandboxContextClient) StartProcess(
-	ctx context.Context,
-	req *connect.Request[sandbox.StartProcessRequest],
-) (*connect.Response[sandbox.StartProcessResponse], error) {
-	return c.startProcess.CallUnary(ctx, req)
-}
-
-// KillProcess calls com.apple.containerization.sandbox.v3.SandboxContext.KillProcess.
-func (c *sandboxContextClient) KillProcess(
-	ctx context.Context,
-	req *connect.Request[sandbox.KillProcessRequest],
-) (*connect.Response[sandbox.KillProcessResponse], error) {
-	return c.killProcess.CallUnary(ctx, req)
-}
-
-// WaitProcess calls com.apple.containerization.sandbox.v3.SandboxContext.WaitProcess.
-func (c *sandboxContextClient) WaitProcess(
-	ctx context.Context,
-	req *connect.Request[sandbox.WaitProcessRequest],
-) (*connect.Response[sandbox.WaitProcessResponse], error) {
-	return c.waitProcess.CallUnary(ctx, req)
-}
-
-// ResizeProcess calls com.apple.containerization.sandbox.v3.SandboxContext.ResizeProcess.
-func (c *sandboxContextClient) ResizeProcess(
-	ctx context.Context,
-	req *connect.Request[sandbox.ResizeProcessRequest],
-) (*connect.Response[sandbox.ResizeProcessResponse], error) {
-	return c.resizeProcess.CallUnary(ctx, req)
-}
-
-// CloseProcessStdin calls com.apple.containerization.sandbox.v3.SandboxContext.CloseProcessStdin.
-func (c *sandboxContextClient) CloseProcessStdin(
-	ctx context.Context,
-	req *connect.Request[sandbox.CloseProcessStdinRequest],
-) (*connect.Response[sandbox.CloseProcessStdinResponse], error) {
-	return c.closeProcessStdin.CallUnary(ctx, req)
-}
-
-// ContainerStatistics calls
-// com.apple.containerization.sandbox.v3.SandboxContext.ContainerStatistics.
-func (c *sandboxContextClient) ContainerStatistics(
-	ctx context.Context,
-	req *connect.Request[sandbox.ContainerStatisticsRequest],
-) (*connect.Response[sandbox.ContainerStatisticsResponse], error) {
-	return c.containerStatistics.CallUnary(ctx, req)
-}
-
-// ProxyVsock calls com.apple.containerization.sandbox.v3.SandboxContext.ProxyVsock.
-func (c *sandboxContextClient) ProxyVsock(
-	ctx context.Context,
-	req *connect.Request[sandbox.ProxyVsockRequest],
-) (*connect.Response[sandbox.ProxyVsockResponse], error) {
-	return c.proxyVsock.CallUnary(ctx, req)
-}
-
-// StopVsockProxy calls com.apple.containerization.sandbox.v3.SandboxContext.StopVsockProxy.
-func (c *sandboxContextClient) StopVsockProxy(
-	ctx context.Context,
-	req *connect.Request[sandbox.StopVsockProxyRequest],
-) (*connect.Response[sandbox.StopVsockProxyResponse], error) {
-	return c.stopVsockProxy.CallUnary(ctx, req)
-}
-
-// IpLinkSet calls com.apple.containerization.sandbox.v3.SandboxContext.IpLinkSet.
-func (c *sandboxContextClient) IpLinkSet(
-	ctx context.Context,
-	req *connect.Request[sandbox.IpLinkSetRequest],
-) (*connect.Response[sandbox.IpLinkSetResponse], error) {
-	return c.ipLinkSet.CallUnary(ctx, req)
-}
-
-// IpAddrAdd calls com.apple.containerization.sandbox.v3.SandboxContext.IpAddrAdd.
-func (c *sandboxContextClient) IpAddrAdd(
-	ctx context.Context,
-	req *connect.Request[sandbox.IpAddrAddRequest],
-) (*connect.Response[sandbox.IpAddrAddResponse], error) {
-	return c.ipAddrAdd.CallUnary(ctx, req)
-}
-
-// IpRouteAddLink calls com.apple.containerization.sandbox.v3.SandboxContext.IpRouteAddLink.
-func (c *sandboxContextClient) IpRouteAddLink(
-	ctx context.Context,
-	req *connect.Request[sandbox.IpRouteAddLinkRequest],
-) (*connect.Response[sandbox.IpRouteAddLinkResponse], error) {
-	return c.ipRouteAddLink.CallUnary(ctx, req)
-}
-
-// IpRouteAddDefault calls com.apple.containerization.sandbox.v3.SandboxContext.IpRouteAddDefault.
-func (c *sandboxContextClient) IpRouteAddDefault(
-	ctx context.Context,
-	req *connect.Request[sandbox.IpRouteAddDefaultRequest],
-) (*connect.Response[sandbox.IpRouteAddDefaultResponse], error) {
-	return c.ipRouteAddDefault.CallUnary(ctx, req)
-}
-
-// ConfigureDns calls com.apple.containerization.sandbox.v3.SandboxContext.ConfigureDns.
-func (c *sandboxContextClient) ConfigureDns(
-	ctx context.Context,
-	req *connect.Request[sandbox.ConfigureDnsRequest],
-) (*connect.Response[sandbox.ConfigureDnsResponse], error) {
-	return c.configureDns.CallUnary(ctx, req)
-}
-
-// ConfigureHosts calls com.apple.containerization.sandbox.v3.SandboxContext.ConfigureHosts.
-func (c *sandboxContextClient) ConfigureHosts(
-	ctx context.Context,
-	req *connect.Request[sandbox.ConfigureHostsRequest],
-) (*connect.Response[sandbox.ConfigureHostsResponse], error) {
-	return c.configureHosts.CallUnary(ctx, req)
-}
-
-// Sync calls com.apple.containerization.sandbox.v3.SandboxContext.Sync.
-func (c *sandboxContextClient) Sync(
-	ctx context.Context,
-	req *connect.Request[sandbox.SyncRequest],
-) (*connect.Response[sandbox.SyncResponse], error) {
-	return c.sync.CallUnary(ctx, req)
-}
-
-// Kill calls com.apple.containerization.sandbox.v3.SandboxContext.Kill.
-func (c *sandboxContextClient) Kill(
-	ctx context.Context,
-	req *connect.Request[sandbox.KillRequest],
-) (*connect.Response[sandbox.KillResponse], error) {
-	return c.kill.CallUnary(ctx, req)
+// Close releases the stream's resources. It is idempotent and is typically deferred to clean up a
+// stream abandoned before io.EOF.
+func (s SandboxContextCopyClientStream) Close() error {
+	return s.stream.Close()
 }
 
 // SandboxContextHandler is an implementation of the
 // com.apple.containerization.sandbox.v3.SandboxContext service.
 type SandboxContextHandler interface {
 	// Mount a filesystem.
-	Mount(context.Context, *connect.Request[sandbox.MountRequest]) (*connect.Response[sandbox.MountResponse], error)
+	Mount(context.Context, *sandbox.MountRequest) (*sandbox.MountResponse, error)
 	// Unmount a filesystem.
-	Umount(context.Context, *connect.Request[sandbox.UmountRequest]) (*connect.Response[sandbox.UmountResponse], error)
+	Umount(context.Context, *sandbox.UmountRequest) (*sandbox.UmountResponse, error)
 	// Set an environment variable on the init process.
-	Setenv(context.Context, *connect.Request[sandbox.SetenvRequest]) (*connect.Response[sandbox.SetenvResponse], error)
+	Setenv(context.Context, *sandbox.SetenvRequest) (*sandbox.SetenvResponse, error)
 	// Get an environment variable from the init process.
-	Getenv(context.Context, *connect.Request[sandbox.GetenvRequest]) (*connect.Response[sandbox.GetenvResponse], error)
+	Getenv(context.Context, *sandbox.GetenvRequest) (*sandbox.GetenvResponse, error)
 	// Create a new directory inside the sandbox.
-	Mkdir(context.Context, *connect.Request[sandbox.MkdirRequest]) (*connect.Response[sandbox.MkdirResponse], error)
+	Mkdir(context.Context, *sandbox.MkdirRequest) (*sandbox.MkdirResponse, error)
 	// Set sysctls in the context of the sandbox.
-	Sysctl(context.Context, *connect.Request[sandbox.SysctlRequest]) (*connect.Response[sandbox.SysctlResponse], error)
+	Sysctl(context.Context, *sandbox.SysctlRequest) (*sandbox.SysctlResponse, error)
 	// Set time in the guest.
-	SetTime(
-		context.Context,
-		*connect.Request[sandbox.SetTimeRequest],
-	) (*connect.Response[sandbox.SetTimeResponse], error)
+	SetTime(context.Context, *sandbox.SetTimeRequest) (*sandbox.SetTimeResponse, error)
 	// Set up an emulator in the guest for a specific binary format.
-	SetupEmulator(
-		context.Context,
-		*connect.Request[sandbox.SetupEmulatorRequest],
-	) (*connect.Response[sandbox.SetupEmulatorResponse], error)
+	SetupEmulator(context.Context, *sandbox.SetupEmulatorRequest) (*sandbox.SetupEmulatorResponse, error)
 	// Write data to an existing or new file.
-	WriteFile(
-		context.Context,
-		*connect.Request[sandbox.WriteFileRequest],
-	) (*connect.Response[sandbox.WriteFileResponse], error)
+	WriteFile(context.Context, *sandbox.WriteFileRequest) (*sandbox.WriteFileResponse, error)
 	// Copy a file or directory between the host and guest.
 	// Data transfer happens over a dedicated vsock connection;
 	// the gRPC stream is used only for control/metadata.
-	Copy(context.Context, *connect.Request[sandbox.CopyRequest], *connect.ServerStream[sandbox.CopyResponse]) error
+	Copy(context.Context, *sandbox.CopyRequest, SandboxContextCopyServerStream) error
 	// Stat a path in the guest filesystem.
-	Stat(context.Context, *connect.Request[sandbox.StatRequest]) (*connect.Response[sandbox.StatResponse], error)
+	Stat(context.Context, *sandbox.StatRequest) (*sandbox.StatResponse, error)
 	// Perform a filesystem operation on a mounted filesystem.
 	FilesystemOperation(
 		context.Context,
-		*connect.Request[sandbox.FilesystemOperationRequest],
-	) (*connect.Response[sandbox.FilesystemOperationResponse], error)
+		*sandbox.FilesystemOperationRequest,
+	) (*sandbox.FilesystemOperationResponse, error)
 	// Create a new process inside the container.
-	CreateProcess(
-		context.Context,
-		*connect.Request[sandbox.CreateProcessRequest],
-	) (*connect.Response[sandbox.CreateProcessResponse], error)
+	CreateProcess(context.Context, *sandbox.CreateProcessRequest) (*sandbox.CreateProcessResponse, error)
 	// Delete an existing process inside the container.
-	DeleteProcess(
-		context.Context,
-		*connect.Request[sandbox.DeleteProcessRequest],
-	) (*connect.Response[sandbox.DeleteProcessResponse], error)
+	DeleteProcess(context.Context, *sandbox.DeleteProcessRequest) (*sandbox.DeleteProcessResponse, error)
 	// Start the provided process.
-	StartProcess(
-		context.Context,
-		*connect.Request[sandbox.StartProcessRequest],
-	) (*connect.Response[sandbox.StartProcessResponse], error)
+	StartProcess(context.Context, *sandbox.StartProcessRequest) (*sandbox.StartProcessResponse, error)
 	// Send a signal to the provided process.
-	KillProcess(
-		context.Context,
-		*connect.Request[sandbox.KillProcessRequest],
-	) (*connect.Response[sandbox.KillProcessResponse], error)
+	KillProcess(context.Context, *sandbox.KillProcessRequest) (*sandbox.KillProcessResponse, error)
 	// Wait for a process to exit and return the exit code.
-	WaitProcess(
-		context.Context,
-		*connect.Request[sandbox.WaitProcessRequest],
-	) (*connect.Response[sandbox.WaitProcessResponse], error)
+	WaitProcess(context.Context, *sandbox.WaitProcessRequest) (*sandbox.WaitProcessResponse, error)
 	// Resize the tty of a given process. This will error if the process does
 	// not have a pty allocated.
-	ResizeProcess(
-		context.Context,
-		*connect.Request[sandbox.ResizeProcessRequest],
-	) (*connect.Response[sandbox.ResizeProcessResponse], error)
+	ResizeProcess(context.Context, *sandbox.ResizeProcessRequest) (*sandbox.ResizeProcessResponse, error)
 	// Close IO for a given process.
-	CloseProcessStdin(
-		context.Context,
-		*connect.Request[sandbox.CloseProcessStdinRequest],
-	) (*connect.Response[sandbox.CloseProcessStdinResponse], error)
+	CloseProcessStdin(context.Context, *sandbox.CloseProcessStdinRequest) (*sandbox.CloseProcessStdinResponse, error)
 	// Get statistics for containers.
 	ContainerStatistics(
 		context.Context,
-		*connect.Request[sandbox.ContainerStatisticsRequest],
-	) (*connect.Response[sandbox.ContainerStatisticsResponse], error)
+		*sandbox.ContainerStatisticsRequest,
+	) (*sandbox.ContainerStatisticsResponse, error)
 	// Proxy a vsock port to a unix domain socket in the guest, or vice versa.
-	ProxyVsock(
-		context.Context,
-		*connect.Request[sandbox.ProxyVsockRequest],
-	) (*connect.Response[sandbox.ProxyVsockResponse], error)
+	ProxyVsock(context.Context, *sandbox.ProxyVsockRequest) (*sandbox.ProxyVsockResponse, error)
 	// Stop a vsock proxy to a unix domain socket.
-	StopVsockProxy(
-		context.Context,
-		*connect.Request[sandbox.StopVsockProxyRequest],
-	) (*connect.Response[sandbox.StopVsockProxyResponse], error)
+	StopVsockProxy(context.Context, *sandbox.StopVsockProxyRequest) (*sandbox.StopVsockProxyResponse, error)
 	// Set the link state of a network interface.
-	IpLinkSet(
-		context.Context,
-		*connect.Request[sandbox.IpLinkSetRequest],
-	) (*connect.Response[sandbox.IpLinkSetResponse], error)
+	IpLinkSet(context.Context, *sandbox.IpLinkSetRequest) (*sandbox.IpLinkSetResponse, error)
 	// Add an IPv4 address to a network interface.
-	IpAddrAdd(
-		context.Context,
-		*connect.Request[sandbox.IpAddrAddRequest],
-	) (*connect.Response[sandbox.IpAddrAddResponse], error)
+	IpAddrAdd(context.Context, *sandbox.IpAddrAddRequest) (*sandbox.IpAddrAddResponse, error)
 	// Add an IP route for a network interface.
-	IpRouteAddLink(
-		context.Context,
-		*connect.Request[sandbox.IpRouteAddLinkRequest],
-	) (*connect.Response[sandbox.IpRouteAddLinkResponse], error)
+	IpRouteAddLink(context.Context, *sandbox.IpRouteAddLinkRequest) (*sandbox.IpRouteAddLinkResponse, error)
 	// Add an IP route for a network interface.
-	IpRouteAddDefault(
-		context.Context,
-		*connect.Request[sandbox.IpRouteAddDefaultRequest],
-	) (*connect.Response[sandbox.IpRouteAddDefaultResponse], error)
+	IpRouteAddDefault(context.Context, *sandbox.IpRouteAddDefaultRequest) (*sandbox.IpRouteAddDefaultResponse, error)
 	// Configure DNS resolver.
-	ConfigureDns(
-		context.Context,
-		*connect.Request[sandbox.ConfigureDnsRequest],
-	) (*connect.Response[sandbox.ConfigureDnsResponse], error)
+	ConfigureDns(context.Context, *sandbox.ConfigureDnsRequest) (*sandbox.ConfigureDnsResponse, error)
 	// Configure /etc/hosts.
-	ConfigureHosts(
-		context.Context,
-		*connect.Request[sandbox.ConfigureHostsRequest],
-	) (*connect.Response[sandbox.ConfigureHostsResponse], error)
+	ConfigureHosts(context.Context, *sandbox.ConfigureHostsRequest) (*sandbox.ConfigureHostsResponse, error)
 	// Perform the sync syscall.
-	Sync(context.Context, *connect.Request[sandbox.SyncRequest]) (*connect.Response[sandbox.SyncResponse], error)
+	Sync(context.Context, *sandbox.SyncRequest) (*sandbox.SyncResponse, error)
 	// Send a signal to a process via the PID.
-	Kill(context.Context, *connect.Request[sandbox.KillRequest]) (*connect.Response[sandbox.KillResponse], error)
+	Kill(context.Context, *sandbox.KillRequest) (*sandbox.KillResponse, error)
 }
 
-// NewSandboxContextHandler builds an HTTP handler from the service implementation. It returns the
-// path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewSandboxContextHandler(svc SandboxContextHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	sandboxContextMethods := sandbox.File_SandboxContext_proto.Services().ByName("SandboxContext").Methods()
-	sandboxContextMountHandler := connect.NewUnaryHandler(
-		SandboxContextMountProcedure,
-		svc.Mount,
-		connect.WithSchema(sandboxContextMethods.ByName("Mount")),
-		connect.WithHandlerOptions(opts...),
+// RegisterSandboxContextHandler registers svc as the
+// com.apple.containerization.sandbox.v3.SandboxContext implementation on server.
+func RegisterSandboxContextHandler(server *connect.Server, svc SandboxContextHandler) {
+	adapter := sandboxContextHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: sandboxContextMountSpec(), Handler: adapter.mount},
+		connect.Method{Spec: sandboxContextUmountSpec(), Handler: adapter.umount},
+		connect.Method{Spec: sandboxContextSetenvSpec(), Handler: adapter.setenv},
+		connect.Method{Spec: sandboxContextGetenvSpec(), Handler: adapter.getenv},
+		connect.Method{Spec: sandboxContextMkdirSpec(), Handler: adapter.mkdir},
+		connect.Method{Spec: sandboxContextSysctlSpec(), Handler: adapter.sysctl},
+		connect.Method{Spec: sandboxContextSetTimeSpec(), Handler: adapter.setTime},
+		connect.Method{Spec: sandboxContextSetupEmulatorSpec(), Handler: adapter.setupEmulator},
+		connect.Method{Spec: sandboxContextWriteFileSpec(), Handler: adapter.writeFile},
+		connect.Method{Spec: sandboxContextCopySpec(), Handler: adapter.copy},
+		connect.Method{Spec: sandboxContextStatSpec(), Handler: adapter.stat},
+		connect.Method{Spec: sandboxContextFilesystemOperationSpec(), Handler: adapter.filesystemOperation},
+		connect.Method{Spec: sandboxContextCreateProcessSpec(), Handler: adapter.createProcess},
+		connect.Method{Spec: sandboxContextDeleteProcessSpec(), Handler: adapter.deleteProcess},
+		connect.Method{Spec: sandboxContextStartProcessSpec(), Handler: adapter.startProcess},
+		connect.Method{Spec: sandboxContextKillProcessSpec(), Handler: adapter.killProcess},
+		connect.Method{Spec: sandboxContextWaitProcessSpec(), Handler: adapter.waitProcess},
+		connect.Method{Spec: sandboxContextResizeProcessSpec(), Handler: adapter.resizeProcess},
+		connect.Method{Spec: sandboxContextCloseProcessStdinSpec(), Handler: adapter.closeProcessStdin},
+		connect.Method{Spec: sandboxContextContainerStatisticsSpec(), Handler: adapter.containerStatistics},
+		connect.Method{Spec: sandboxContextProxyVsockSpec(), Handler: adapter.proxyVsock},
+		connect.Method{Spec: sandboxContextStopVsockProxySpec(), Handler: adapter.stopVsockProxy},
+		connect.Method{Spec: sandboxContextIpLinkSetSpec(), Handler: adapter.ipLinkSet},
+		connect.Method{Spec: sandboxContextIpAddrAddSpec(), Handler: adapter.ipAddrAdd},
+		connect.Method{Spec: sandboxContextIpRouteAddLinkSpec(), Handler: adapter.ipRouteAddLink},
+		connect.Method{Spec: sandboxContextIpRouteAddDefaultSpec(), Handler: adapter.ipRouteAddDefault},
+		connect.Method{Spec: sandboxContextConfigureDnsSpec(), Handler: adapter.configureDns},
+		connect.Method{Spec: sandboxContextConfigureHostsSpec(), Handler: adapter.configureHosts},
+		connect.Method{Spec: sandboxContextSyncSpec(), Handler: adapter.sync},
+		connect.Method{Spec: sandboxContextKillSpec(), Handler: adapter.kill},
 	)
-	sandboxContextUmountHandler := connect.NewUnaryHandler(
-		SandboxContextUmountProcedure,
-		svc.Umount,
-		connect.WithSchema(sandboxContextMethods.ByName("Umount")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextSetenvHandler := connect.NewUnaryHandler(
-		SandboxContextSetenvProcedure,
-		svc.Setenv,
-		connect.WithSchema(sandboxContextMethods.ByName("Setenv")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextGetenvHandler := connect.NewUnaryHandler(
-		SandboxContextGetenvProcedure,
-		svc.Getenv,
-		connect.WithSchema(sandboxContextMethods.ByName("Getenv")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextMkdirHandler := connect.NewUnaryHandler(
-		SandboxContextMkdirProcedure,
-		svc.Mkdir,
-		connect.WithSchema(sandboxContextMethods.ByName("Mkdir")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextSysctlHandler := connect.NewUnaryHandler(
-		SandboxContextSysctlProcedure,
-		svc.Sysctl,
-		connect.WithSchema(sandboxContextMethods.ByName("Sysctl")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextSetTimeHandler := connect.NewUnaryHandler(
-		SandboxContextSetTimeProcedure,
-		svc.SetTime,
-		connect.WithSchema(sandboxContextMethods.ByName("SetTime")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextSetupEmulatorHandler := connect.NewUnaryHandler(
-		SandboxContextSetupEmulatorProcedure,
-		svc.SetupEmulator,
-		connect.WithSchema(sandboxContextMethods.ByName("SetupEmulator")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextWriteFileHandler := connect.NewUnaryHandler(
-		SandboxContextWriteFileProcedure,
-		svc.WriteFile,
-		connect.WithSchema(sandboxContextMethods.ByName("WriteFile")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextCopyHandler := connect.NewServerStreamHandler(
-		SandboxContextCopyProcedure,
-		svc.Copy,
-		connect.WithSchema(sandboxContextMethods.ByName("Copy")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextStatHandler := connect.NewUnaryHandler(
-		SandboxContextStatProcedure,
-		svc.Stat,
-		connect.WithSchema(sandboxContextMethods.ByName("Stat")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextFilesystemOperationHandler := connect.NewUnaryHandler(
-		SandboxContextFilesystemOperationProcedure,
-		svc.FilesystemOperation,
-		connect.WithSchema(sandboxContextMethods.ByName("FilesystemOperation")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextCreateProcessHandler := connect.NewUnaryHandler(
-		SandboxContextCreateProcessProcedure,
-		svc.CreateProcess,
-		connect.WithSchema(sandboxContextMethods.ByName("CreateProcess")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextDeleteProcessHandler := connect.NewUnaryHandler(
-		SandboxContextDeleteProcessProcedure,
-		svc.DeleteProcess,
-		connect.WithSchema(sandboxContextMethods.ByName("DeleteProcess")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextStartProcessHandler := connect.NewUnaryHandler(
-		SandboxContextStartProcessProcedure,
-		svc.StartProcess,
-		connect.WithSchema(sandboxContextMethods.ByName("StartProcess")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextKillProcessHandler := connect.NewUnaryHandler(
-		SandboxContextKillProcessProcedure,
-		svc.KillProcess,
-		connect.WithSchema(sandboxContextMethods.ByName("KillProcess")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextWaitProcessHandler := connect.NewUnaryHandler(
-		SandboxContextWaitProcessProcedure,
-		svc.WaitProcess,
-		connect.WithSchema(sandboxContextMethods.ByName("WaitProcess")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextResizeProcessHandler := connect.NewUnaryHandler(
-		SandboxContextResizeProcessProcedure,
-		svc.ResizeProcess,
-		connect.WithSchema(sandboxContextMethods.ByName("ResizeProcess")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextCloseProcessStdinHandler := connect.NewUnaryHandler(
-		SandboxContextCloseProcessStdinProcedure,
-		svc.CloseProcessStdin,
-		connect.WithSchema(sandboxContextMethods.ByName("CloseProcessStdin")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextContainerStatisticsHandler := connect.NewUnaryHandler(
-		SandboxContextContainerStatisticsProcedure,
-		svc.ContainerStatistics,
-		connect.WithSchema(sandboxContextMethods.ByName("ContainerStatistics")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextProxyVsockHandler := connect.NewUnaryHandler(
-		SandboxContextProxyVsockProcedure,
-		svc.ProxyVsock,
-		connect.WithSchema(sandboxContextMethods.ByName("ProxyVsock")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextStopVsockProxyHandler := connect.NewUnaryHandler(
-		SandboxContextStopVsockProxyProcedure,
-		svc.StopVsockProxy,
-		connect.WithSchema(sandboxContextMethods.ByName("StopVsockProxy")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextIpLinkSetHandler := connect.NewUnaryHandler(
-		SandboxContextIpLinkSetProcedure,
-		svc.IpLinkSet,
-		connect.WithSchema(sandboxContextMethods.ByName("IpLinkSet")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextIpAddrAddHandler := connect.NewUnaryHandler(
-		SandboxContextIpAddrAddProcedure,
-		svc.IpAddrAdd,
-		connect.WithSchema(sandboxContextMethods.ByName("IpAddrAdd")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextIpRouteAddLinkHandler := connect.NewUnaryHandler(
-		SandboxContextIpRouteAddLinkProcedure,
-		svc.IpRouteAddLink,
-		connect.WithSchema(sandboxContextMethods.ByName("IpRouteAddLink")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextIpRouteAddDefaultHandler := connect.NewUnaryHandler(
-		SandboxContextIpRouteAddDefaultProcedure,
-		svc.IpRouteAddDefault,
-		connect.WithSchema(sandboxContextMethods.ByName("IpRouteAddDefault")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextConfigureDnsHandler := connect.NewUnaryHandler(
-		SandboxContextConfigureDnsProcedure,
-		svc.ConfigureDns,
-		connect.WithSchema(sandboxContextMethods.ByName("ConfigureDns")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextConfigureHostsHandler := connect.NewUnaryHandler(
-		SandboxContextConfigureHostsProcedure,
-		svc.ConfigureHosts,
-		connect.WithSchema(sandboxContextMethods.ByName("ConfigureHosts")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextSyncHandler := connect.NewUnaryHandler(
-		SandboxContextSyncProcedure,
-		svc.Sync,
-		connect.WithSchema(sandboxContextMethods.ByName("Sync")),
-		connect.WithHandlerOptions(opts...),
-	)
-	sandboxContextKillHandler := connect.NewUnaryHandler(
-		SandboxContextKillProcedure,
-		svc.Kill,
-		connect.WithSchema(sandboxContextMethods.ByName("Kill")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/com.apple.containerization.sandbox.v3.SandboxContext/", http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case SandboxContextMountProcedure:
-				sandboxContextMountHandler.ServeHTTP(w, r)
-			case SandboxContextUmountProcedure:
-				sandboxContextUmountHandler.ServeHTTP(w, r)
-			case SandboxContextSetenvProcedure:
-				sandboxContextSetenvHandler.ServeHTTP(w, r)
-			case SandboxContextGetenvProcedure:
-				sandboxContextGetenvHandler.ServeHTTP(w, r)
-			case SandboxContextMkdirProcedure:
-				sandboxContextMkdirHandler.ServeHTTP(w, r)
-			case SandboxContextSysctlProcedure:
-				sandboxContextSysctlHandler.ServeHTTP(w, r)
-			case SandboxContextSetTimeProcedure:
-				sandboxContextSetTimeHandler.ServeHTTP(w, r)
-			case SandboxContextSetupEmulatorProcedure:
-				sandboxContextSetupEmulatorHandler.ServeHTTP(w, r)
-			case SandboxContextWriteFileProcedure:
-				sandboxContextWriteFileHandler.ServeHTTP(w, r)
-			case SandboxContextCopyProcedure:
-				sandboxContextCopyHandler.ServeHTTP(w, r)
-			case SandboxContextStatProcedure:
-				sandboxContextStatHandler.ServeHTTP(w, r)
-			case SandboxContextFilesystemOperationProcedure:
-				sandboxContextFilesystemOperationHandler.ServeHTTP(w, r)
-			case SandboxContextCreateProcessProcedure:
-				sandboxContextCreateProcessHandler.ServeHTTP(w, r)
-			case SandboxContextDeleteProcessProcedure:
-				sandboxContextDeleteProcessHandler.ServeHTTP(w, r)
-			case SandboxContextStartProcessProcedure:
-				sandboxContextStartProcessHandler.ServeHTTP(w, r)
-			case SandboxContextKillProcessProcedure:
-				sandboxContextKillProcessHandler.ServeHTTP(w, r)
-			case SandboxContextWaitProcessProcedure:
-				sandboxContextWaitProcessHandler.ServeHTTP(w, r)
-			case SandboxContextResizeProcessProcedure:
-				sandboxContextResizeProcessHandler.ServeHTTP(w, r)
-			case SandboxContextCloseProcessStdinProcedure:
-				sandboxContextCloseProcessStdinHandler.ServeHTTP(w, r)
-			case SandboxContextContainerStatisticsProcedure:
-				sandboxContextContainerStatisticsHandler.ServeHTTP(w, r)
-			case SandboxContextProxyVsockProcedure:
-				sandboxContextProxyVsockHandler.ServeHTTP(w, r)
-			case SandboxContextStopVsockProxyProcedure:
-				sandboxContextStopVsockProxyHandler.ServeHTTP(w, r)
-			case SandboxContextIpLinkSetProcedure:
-				sandboxContextIpLinkSetHandler.ServeHTTP(w, r)
-			case SandboxContextIpAddrAddProcedure:
-				sandboxContextIpAddrAddHandler.ServeHTTP(w, r)
-			case SandboxContextIpRouteAddLinkProcedure:
-				sandboxContextIpRouteAddLinkHandler.ServeHTTP(w, r)
-			case SandboxContextIpRouteAddDefaultProcedure:
-				sandboxContextIpRouteAddDefaultHandler.ServeHTTP(w, r)
-			case SandboxContextConfigureDnsProcedure:
-				sandboxContextConfigureDnsHandler.ServeHTTP(w, r)
-			case SandboxContextConfigureHostsProcedure:
-				sandboxContextConfigureHostsHandler.ServeHTTP(w, r)
-			case SandboxContextSyncProcedure:
-				sandboxContextSyncHandler.ServeHTTP(w, r)
-			case SandboxContextKillProcedure:
-				sandboxContextKillHandler.ServeHTTP(w, r)
-			default:
-				http.NotFound(w, r)
-			}
-		},
-	)
+}
+
+// SandboxContextCopyServerStream is the server stream for the SandboxContext's Copy RPC.
+type SandboxContextCopyServerStream struct {
+	stream connect.ServerStream
+}
+
+// SendHeaders flushes the response headers without a message. The first Send does this implicitly.
+func (s SandboxContextCopyServerStream) SendHeaders() error {
+	return s.stream.SendHeaders()
+}
+
+// Send sends a response message to the client.
+func (s SandboxContextCopyServerStream) Send(res *sandbox.CopyResponse) error {
+	return s.stream.Send(res)
 }
 
 // UnimplementedSandboxContextHandler returns CodeUnimplemented from all methods.
@@ -1112,301 +619,985 @@ type UnimplementedSandboxContextHandler struct{}
 
 func (UnimplementedSandboxContextHandler) Mount(
 	context.Context,
-	*connect.Request[sandbox.MountRequest],
-) (*connect.Response[sandbox.MountResponse], error) {
+	*sandbox.MountRequest,
+) (*sandbox.MountResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.Mount is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.Mount is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) Umount(
 	context.Context,
-	*connect.Request[sandbox.UmountRequest],
-) (*connect.Response[sandbox.UmountResponse], error) {
+	*sandbox.UmountRequest,
+) (*sandbox.UmountResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.Umount is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.Umount is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) Setenv(
 	context.Context,
-	*connect.Request[sandbox.SetenvRequest],
-) (*connect.Response[sandbox.SetenvResponse], error) {
+	*sandbox.SetenvRequest,
+) (*sandbox.SetenvResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.Setenv is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.Setenv is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) Getenv(
 	context.Context,
-	*connect.Request[sandbox.GetenvRequest],
-) (*connect.Response[sandbox.GetenvResponse], error) {
+	*sandbox.GetenvRequest,
+) (*sandbox.GetenvResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.Getenv is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.Getenv is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) Mkdir(
 	context.Context,
-	*connect.Request[sandbox.MkdirRequest],
-) (*connect.Response[sandbox.MkdirResponse], error) {
+	*sandbox.MkdirRequest,
+) (*sandbox.MkdirResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.Mkdir is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.Mkdir is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) Sysctl(
 	context.Context,
-	*connect.Request[sandbox.SysctlRequest],
-) (*connect.Response[sandbox.SysctlResponse], error) {
+	*sandbox.SysctlRequest,
+) (*sandbox.SysctlResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.Sysctl is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.Sysctl is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) SetTime(
 	context.Context,
-	*connect.Request[sandbox.SetTimeRequest],
-) (*connect.Response[sandbox.SetTimeResponse], error) {
+	*sandbox.SetTimeRequest,
+) (*sandbox.SetTimeResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.SetTime is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.SetTime is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) SetupEmulator(
 	context.Context,
-	*connect.Request[sandbox.SetupEmulatorRequest],
-) (*connect.Response[sandbox.SetupEmulatorResponse], error) {
+	*sandbox.SetupEmulatorRequest,
+) (*sandbox.SetupEmulatorResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.SetupEmulator is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.SetupEmulator is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) WriteFile(
 	context.Context,
-	*connect.Request[sandbox.WriteFileRequest],
-) (*connect.Response[sandbox.WriteFileResponse], error) {
+	*sandbox.WriteFileRequest,
+) (*sandbox.WriteFileResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.WriteFile is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.WriteFile is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) Copy(
 	context.Context,
-	*connect.Request[sandbox.CopyRequest],
-	*connect.ServerStream[sandbox.CopyResponse],
+	*sandbox.CopyRequest,
+	SandboxContextCopyServerStream,
 ) error {
 	return connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.Copy is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.Copy is not implemented",
 	)
 }
 
-func (UnimplementedSandboxContextHandler) Stat(
-	context.Context,
-	*connect.Request[sandbox.StatRequest],
-) (*connect.Response[sandbox.StatResponse], error) {
+func (UnimplementedSandboxContextHandler) Stat(context.Context, *sandbox.StatRequest) (*sandbox.StatResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.Stat is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.Stat is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) FilesystemOperation(
 	context.Context,
-	*connect.Request[sandbox.FilesystemOperationRequest],
-) (*connect.Response[sandbox.FilesystemOperationResponse], error) {
+	*sandbox.FilesystemOperationRequest,
+) (*sandbox.FilesystemOperationResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.FilesystemOperation is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.FilesystemOperation is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) CreateProcess(
 	context.Context,
-	*connect.Request[sandbox.CreateProcessRequest],
-) (*connect.Response[sandbox.CreateProcessResponse], error) {
+	*sandbox.CreateProcessRequest,
+) (*sandbox.CreateProcessResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.CreateProcess is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.CreateProcess is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) DeleteProcess(
 	context.Context,
-	*connect.Request[sandbox.DeleteProcessRequest],
-) (*connect.Response[sandbox.DeleteProcessResponse], error) {
+	*sandbox.DeleteProcessRequest,
+) (*sandbox.DeleteProcessResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.DeleteProcess is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.DeleteProcess is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) StartProcess(
 	context.Context,
-	*connect.Request[sandbox.StartProcessRequest],
-) (*connect.Response[sandbox.StartProcessResponse], error) {
+	*sandbox.StartProcessRequest,
+) (*sandbox.StartProcessResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.StartProcess is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.StartProcess is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) KillProcess(
 	context.Context,
-	*connect.Request[sandbox.KillProcessRequest],
-) (*connect.Response[sandbox.KillProcessResponse], error) {
+	*sandbox.KillProcessRequest,
+) (*sandbox.KillProcessResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.KillProcess is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.KillProcess is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) WaitProcess(
 	context.Context,
-	*connect.Request[sandbox.WaitProcessRequest],
-) (*connect.Response[sandbox.WaitProcessResponse], error) {
+	*sandbox.WaitProcessRequest,
+) (*sandbox.WaitProcessResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.WaitProcess is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.WaitProcess is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) ResizeProcess(
 	context.Context,
-	*connect.Request[sandbox.ResizeProcessRequest],
-) (*connect.Response[sandbox.ResizeProcessResponse], error) {
+	*sandbox.ResizeProcessRequest,
+) (*sandbox.ResizeProcessResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.ResizeProcess is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.ResizeProcess is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) CloseProcessStdin(
 	context.Context,
-	*connect.Request[sandbox.CloseProcessStdinRequest],
-) (*connect.Response[sandbox.CloseProcessStdinResponse], error) {
+	*sandbox.CloseProcessStdinRequest,
+) (*sandbox.CloseProcessStdinResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.CloseProcessStdin is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.CloseProcessStdin is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) ContainerStatistics(
 	context.Context,
-	*connect.Request[sandbox.ContainerStatisticsRequest],
-) (*connect.Response[sandbox.ContainerStatisticsResponse], error) {
+	*sandbox.ContainerStatisticsRequest,
+) (*sandbox.ContainerStatisticsResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.ContainerStatistics is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.ContainerStatistics is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) ProxyVsock(
 	context.Context,
-	*connect.Request[sandbox.ProxyVsockRequest],
-) (*connect.Response[sandbox.ProxyVsockResponse], error) {
+	*sandbox.ProxyVsockRequest,
+) (*sandbox.ProxyVsockResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.ProxyVsock is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.ProxyVsock is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) StopVsockProxy(
 	context.Context,
-	*connect.Request[sandbox.StopVsockProxyRequest],
-) (*connect.Response[sandbox.StopVsockProxyResponse], error) {
+	*sandbox.StopVsockProxyRequest,
+) (*sandbox.StopVsockProxyResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.StopVsockProxy is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.StopVsockProxy is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) IpLinkSet(
 	context.Context,
-	*connect.Request[sandbox.IpLinkSetRequest],
-) (*connect.Response[sandbox.IpLinkSetResponse], error) {
+	*sandbox.IpLinkSetRequest,
+) (*sandbox.IpLinkSetResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.IpLinkSet is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.IpLinkSet is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) IpAddrAdd(
 	context.Context,
-	*connect.Request[sandbox.IpAddrAddRequest],
-) (*connect.Response[sandbox.IpAddrAddResponse], error) {
+	*sandbox.IpAddrAddRequest,
+) (*sandbox.IpAddrAddResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.IpAddrAdd is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.IpAddrAdd is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) IpRouteAddLink(
 	context.Context,
-	*connect.Request[sandbox.IpRouteAddLinkRequest],
-) (*connect.Response[sandbox.IpRouteAddLinkResponse], error) {
+	*sandbox.IpRouteAddLinkRequest,
+) (*sandbox.IpRouteAddLinkResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.IpRouteAddLink is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.IpRouteAddLink is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) IpRouteAddDefault(
 	context.Context,
-	*connect.Request[sandbox.IpRouteAddDefaultRequest],
-) (*connect.Response[sandbox.IpRouteAddDefaultResponse], error) {
+	*sandbox.IpRouteAddDefaultRequest,
+) (*sandbox.IpRouteAddDefaultResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.IpRouteAddDefault is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.IpRouteAddDefault is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) ConfigureDns(
 	context.Context,
-	*connect.Request[sandbox.ConfigureDnsRequest],
-) (*connect.Response[sandbox.ConfigureDnsResponse], error) {
+	*sandbox.ConfigureDnsRequest,
+) (*sandbox.ConfigureDnsResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.ConfigureDns is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.ConfigureDns is not implemented",
 	)
 }
 
 func (UnimplementedSandboxContextHandler) ConfigureHosts(
 	context.Context,
-	*connect.Request[sandbox.ConfigureHostsRequest],
-) (*connect.Response[sandbox.ConfigureHostsResponse], error) {
+	*sandbox.ConfigureHostsRequest,
+) (*sandbox.ConfigureHostsResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.ConfigureHosts is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.ConfigureHosts is not implemented",
 	)
 }
 
-func (UnimplementedSandboxContextHandler) Sync(
-	context.Context,
-	*connect.Request[sandbox.SyncRequest],
-) (*connect.Response[sandbox.SyncResponse], error) {
+func (UnimplementedSandboxContextHandler) Sync(context.Context, *sandbox.SyncRequest) (*sandbox.SyncResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.Sync is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.Sync is not implemented",
 	)
 }
 
-func (UnimplementedSandboxContextHandler) Kill(
-	context.Context,
-	*connect.Request[sandbox.KillRequest],
-) (*connect.Response[sandbox.KillResponse], error) {
+func (UnimplementedSandboxContextHandler) Kill(context.Context, *sandbox.KillRequest) (*sandbox.KillResponse, error) {
 	return nil, connect.NewError(
 		connect.CodeUnimplemented,
-		errors.New("com.apple.containerization.sandbox.v3.SandboxContext.Kill is not implemented"),
+		"com.apple.containerization.sandbox.v3.SandboxContext.Kill is not implemented",
 	)
+}
+
+type sandboxContextClient struct {
+	client *connect.Client
+}
+
+func (c *sandboxContextClient) Mount(ctx context.Context, req *sandbox.MountRequest) (*sandbox.MountResponse, error) {
+	var res sandbox.MountResponse
+	if err := c.client.CallUnary(ctx, sandboxContextMountSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) Umount(
+	ctx context.Context,
+	req *sandbox.UmountRequest,
+) (*sandbox.UmountResponse, error) {
+	var res sandbox.UmountResponse
+	if err := c.client.CallUnary(ctx, sandboxContextUmountSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) Setenv(
+	ctx context.Context,
+	req *sandbox.SetenvRequest,
+) (*sandbox.SetenvResponse, error) {
+	var res sandbox.SetenvResponse
+	if err := c.client.CallUnary(ctx, sandboxContextSetenvSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) Getenv(
+	ctx context.Context,
+	req *sandbox.GetenvRequest,
+) (*sandbox.GetenvResponse, error) {
+	var res sandbox.GetenvResponse
+	if err := c.client.CallUnary(ctx, sandboxContextGetenvSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) Mkdir(ctx context.Context, req *sandbox.MkdirRequest) (*sandbox.MkdirResponse, error) {
+	var res sandbox.MkdirResponse
+	if err := c.client.CallUnary(ctx, sandboxContextMkdirSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) Sysctl(
+	ctx context.Context,
+	req *sandbox.SysctlRequest,
+) (*sandbox.SysctlResponse, error) {
+	var res sandbox.SysctlResponse
+	if err := c.client.CallUnary(ctx, sandboxContextSysctlSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) SetTime(
+	ctx context.Context,
+	req *sandbox.SetTimeRequest,
+) (*sandbox.SetTimeResponse, error) {
+	var res sandbox.SetTimeResponse
+	if err := c.client.CallUnary(ctx, sandboxContextSetTimeSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) SetupEmulator(
+	ctx context.Context,
+	req *sandbox.SetupEmulatorRequest,
+) (*sandbox.SetupEmulatorResponse, error) {
+	var res sandbox.SetupEmulatorResponse
+	if err := c.client.CallUnary(ctx, sandboxContextSetupEmulatorSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) WriteFile(
+	ctx context.Context,
+	req *sandbox.WriteFileRequest,
+) (*sandbox.WriteFileResponse, error) {
+	var res sandbox.WriteFileResponse
+	if err := c.client.CallUnary(ctx, sandboxContextWriteFileSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) Copy(
+	ctx context.Context,
+	req *sandbox.CopyRequest,
+) (SandboxContextCopyClientStream, error) {
+	stream, err := c.client.CallServerStream(ctx, sandboxContextCopySpec(), req)
+	if err != nil {
+		return SandboxContextCopyClientStream{}, err
+	}
+	return SandboxContextCopyClientStream{stream: stream}, nil
+}
+
+func (c *sandboxContextClient) Stat(ctx context.Context, req *sandbox.StatRequest) (*sandbox.StatResponse, error) {
+	var res sandbox.StatResponse
+	if err := c.client.CallUnary(ctx, sandboxContextStatSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) FilesystemOperation(
+	ctx context.Context,
+	req *sandbox.FilesystemOperationRequest,
+) (*sandbox.FilesystemOperationResponse, error) {
+	var res sandbox.FilesystemOperationResponse
+	if err := c.client.CallUnary(ctx, sandboxContextFilesystemOperationSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) CreateProcess(
+	ctx context.Context,
+	req *sandbox.CreateProcessRequest,
+) (*sandbox.CreateProcessResponse, error) {
+	var res sandbox.CreateProcessResponse
+	if err := c.client.CallUnary(ctx, sandboxContextCreateProcessSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) DeleteProcess(
+	ctx context.Context,
+	req *sandbox.DeleteProcessRequest,
+) (*sandbox.DeleteProcessResponse, error) {
+	var res sandbox.DeleteProcessResponse
+	if err := c.client.CallUnary(ctx, sandboxContextDeleteProcessSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) StartProcess(
+	ctx context.Context,
+	req *sandbox.StartProcessRequest,
+) (*sandbox.StartProcessResponse, error) {
+	var res sandbox.StartProcessResponse
+	if err := c.client.CallUnary(ctx, sandboxContextStartProcessSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) KillProcess(
+	ctx context.Context,
+	req *sandbox.KillProcessRequest,
+) (*sandbox.KillProcessResponse, error) {
+	var res sandbox.KillProcessResponse
+	if err := c.client.CallUnary(ctx, sandboxContextKillProcessSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) WaitProcess(
+	ctx context.Context,
+	req *sandbox.WaitProcessRequest,
+) (*sandbox.WaitProcessResponse, error) {
+	var res sandbox.WaitProcessResponse
+	if err := c.client.CallUnary(ctx, sandboxContextWaitProcessSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) ResizeProcess(
+	ctx context.Context,
+	req *sandbox.ResizeProcessRequest,
+) (*sandbox.ResizeProcessResponse, error) {
+	var res sandbox.ResizeProcessResponse
+	if err := c.client.CallUnary(ctx, sandboxContextResizeProcessSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) CloseProcessStdin(
+	ctx context.Context,
+	req *sandbox.CloseProcessStdinRequest,
+) (*sandbox.CloseProcessStdinResponse, error) {
+	var res sandbox.CloseProcessStdinResponse
+	if err := c.client.CallUnary(ctx, sandboxContextCloseProcessStdinSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) ContainerStatistics(
+	ctx context.Context,
+	req *sandbox.ContainerStatisticsRequest,
+) (*sandbox.ContainerStatisticsResponse, error) {
+	var res sandbox.ContainerStatisticsResponse
+	if err := c.client.CallUnary(ctx, sandboxContextContainerStatisticsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) ProxyVsock(
+	ctx context.Context,
+	req *sandbox.ProxyVsockRequest,
+) (*sandbox.ProxyVsockResponse, error) {
+	var res sandbox.ProxyVsockResponse
+	if err := c.client.CallUnary(ctx, sandboxContextProxyVsockSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) StopVsockProxy(
+	ctx context.Context,
+	req *sandbox.StopVsockProxyRequest,
+) (*sandbox.StopVsockProxyResponse, error) {
+	var res sandbox.StopVsockProxyResponse
+	if err := c.client.CallUnary(ctx, sandboxContextStopVsockProxySpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) IpLinkSet(
+	ctx context.Context,
+	req *sandbox.IpLinkSetRequest,
+) (*sandbox.IpLinkSetResponse, error) {
+	var res sandbox.IpLinkSetResponse
+	if err := c.client.CallUnary(ctx, sandboxContextIpLinkSetSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) IpAddrAdd(
+	ctx context.Context,
+	req *sandbox.IpAddrAddRequest,
+) (*sandbox.IpAddrAddResponse, error) {
+	var res sandbox.IpAddrAddResponse
+	if err := c.client.CallUnary(ctx, sandboxContextIpAddrAddSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) IpRouteAddLink(
+	ctx context.Context,
+	req *sandbox.IpRouteAddLinkRequest,
+) (*sandbox.IpRouteAddLinkResponse, error) {
+	var res sandbox.IpRouteAddLinkResponse
+	if err := c.client.CallUnary(ctx, sandboxContextIpRouteAddLinkSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) IpRouteAddDefault(
+	ctx context.Context,
+	req *sandbox.IpRouteAddDefaultRequest,
+) (*sandbox.IpRouteAddDefaultResponse, error) {
+	var res sandbox.IpRouteAddDefaultResponse
+	if err := c.client.CallUnary(ctx, sandboxContextIpRouteAddDefaultSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) ConfigureDns(
+	ctx context.Context,
+	req *sandbox.ConfigureDnsRequest,
+) (*sandbox.ConfigureDnsResponse, error) {
+	var res sandbox.ConfigureDnsResponse
+	if err := c.client.CallUnary(ctx, sandboxContextConfigureDnsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) ConfigureHosts(
+	ctx context.Context,
+	req *sandbox.ConfigureHostsRequest,
+) (*sandbox.ConfigureHostsResponse, error) {
+	var res sandbox.ConfigureHostsResponse
+	if err := c.client.CallUnary(ctx, sandboxContextConfigureHostsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) Sync(ctx context.Context, req *sandbox.SyncRequest) (*sandbox.SyncResponse, error) {
+	var res sandbox.SyncResponse
+	if err := c.client.CallUnary(ctx, sandboxContextSyncSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *sandboxContextClient) Kill(ctx context.Context, req *sandbox.KillRequest) (*sandbox.KillResponse, error) {
+	var res sandbox.KillResponse
+	if err := c.client.CallUnary(ctx, sandboxContextKillSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type sandboxContextHandler struct{ svc SandboxContextHandler }
+
+func (h sandboxContextHandler) mount(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.MountRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Mount(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) umount(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.UmountRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Umount(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) setenv(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.SetenvRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Setenv(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) getenv(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.GetenvRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Getenv(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) mkdir(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.MkdirRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Mkdir(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) sysctl(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.SysctlRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Sysctl(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) setTime(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.SetTimeRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SetTime(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) setupEmulator(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.SetupEmulatorRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SetupEmulator(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) writeFile(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.WriteFileRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.WriteFile(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) copy(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.CopyRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	return h.svc.Copy(ctx, &req, SandboxContextCopyServerStream{stream: stream})
+}
+
+func (h sandboxContextHandler) stat(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.StatRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Stat(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) filesystemOperation(
+	ctx context.Context,
+	_ connect.Spec,
+	stream connect.ServerStream,
+) error {
+	var req sandbox.FilesystemOperationRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.FilesystemOperation(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) createProcess(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.CreateProcessRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateProcess(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) deleteProcess(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.DeleteProcessRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteProcess(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) startProcess(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.StartProcessRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.StartProcess(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) killProcess(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.KillProcessRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.KillProcess(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) waitProcess(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.WaitProcessRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.WaitProcess(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) resizeProcess(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.ResizeProcessRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ResizeProcess(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) closeProcessStdin(
+	ctx context.Context,
+	_ connect.Spec,
+	stream connect.ServerStream,
+) error {
+	var req sandbox.CloseProcessStdinRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CloseProcessStdin(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) containerStatistics(
+	ctx context.Context,
+	_ connect.Spec,
+	stream connect.ServerStream,
+) error {
+	var req sandbox.ContainerStatisticsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ContainerStatistics(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) proxyVsock(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.ProxyVsockRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ProxyVsock(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) stopVsockProxy(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.StopVsockProxyRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.StopVsockProxy(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) ipLinkSet(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.IpLinkSetRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.IpLinkSet(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) ipAddrAdd(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.IpAddrAddRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.IpAddrAdd(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) ipRouteAddLink(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.IpRouteAddLinkRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.IpRouteAddLink(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) ipRouteAddDefault(
+	ctx context.Context,
+	_ connect.Spec,
+	stream connect.ServerStream,
+) error {
+	var req sandbox.IpRouteAddDefaultRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.IpRouteAddDefault(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) configureDns(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.ConfigureDnsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ConfigureDns(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) configureHosts(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.ConfigureHostsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ConfigureHosts(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) sync(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.SyncRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Sync(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h sandboxContextHandler) kill(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req sandbox.KillRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Kill(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
 }

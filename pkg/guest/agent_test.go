@@ -9,7 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 
 	"github.com/farcloser/ossein/internal/protocol"
 	pb "github.com/farcloser/ossein/internal/sandbox"
@@ -18,14 +19,33 @@ import (
 
 // fakeGuest is a scriptable in-process guest agent.
 //
-// It mounts only the two procedures these tests exercise, as raw Connect
-// handlers on their generated procedure paths, rather than implementing the
-// whole 30-method SandboxContextHandler interface. That keeps the fake honest
-// about what it stands in for: anything else the client calls 404s loudly
-// instead of silently returning a zero value.
+// It implements only the two procedures these tests exercise and inherits the
+// rest from the generated Unimplemented handler, so anything else the client
+// calls fails loudly with CodeUnimplemented instead of silently returning a
+// zero value.
 type fakeGuest struct {
+	sandboxconnect.UnimplementedSandboxContextHandler
+
 	protoRev string
-	copy     func(stream *connect.ServerStream[pb.CopyResponse]) error
+	copy     func(stream sandboxconnect.SandboxContextCopyServerStream) error
+}
+
+func (f *fakeGuest) Getenv(_ context.Context, req *pb.GetenvRequest) (*pb.GetenvResponse, error) {
+	// The key is spelled out rather than taken from protocol.RevEnvVar on
+	// purpose: this is the wire name a real guest must answer to, so an
+	// accidental rename of the constant fails a test instead of silently
+	// changing the protocol.
+	if req.GetKey() == "OSSEIN_PROTO_REV" {
+		return &pb.GetenvResponse{Value: &f.protoRev}, nil
+	}
+
+	return &pb.GetenvResponse{}, nil
+}
+
+func (f *fakeGuest) Copy(
+	_ context.Context, _ *pb.CopyRequest, stream sandboxconnect.SandboxContextCopyServerStream,
+) error {
+	return f.copy(stream)
 }
 
 // dialFake serves fake over a loopback httptest server and returns a connected
@@ -37,32 +57,11 @@ type fakeGuest struct {
 func dialFake(t *testing.T, fake *fakeGuest) (*Agent, error) {
 	t.Helper()
 
+	rpc := connect.NewServer()
+	sandboxconnect.RegisterSandboxContextHandler(rpc, fake)
+
 	mux := http.NewServeMux()
-
-	mux.Handle(sandboxconnect.SandboxContextGetenvProcedure, connect.NewUnaryHandler(
-		sandboxconnect.SandboxContextGetenvProcedure,
-		func(_ context.Context, req *connect.Request[pb.GetenvRequest],
-		) (*connect.Response[pb.GetenvResponse], error) {
-			// The key is spelled out rather than taken from protocol.RevEnvVar on
-			// purpose: this is the wire name a real guest must answer to, so an
-			// accidental rename of the constant fails a test instead of silently
-			// changing the protocol.
-			if req.Msg.GetKey() == "OSSEIN_PROTO_REV" {
-				return connect.NewResponse(&pb.GetenvResponse{Value: &fake.protoRev}), nil
-			}
-
-			return connect.NewResponse(&pb.GetenvResponse{}), nil
-		},
-	))
-
-	mux.Handle(sandboxconnect.SandboxContextCopyProcedure, connect.NewServerStreamHandler(
-		sandboxconnect.SandboxContextCopyProcedure,
-		func(_ context.Context, _ *connect.Request[pb.CopyRequest],
-			stream *connect.ServerStream[pb.CopyResponse],
-		) error {
-			return fake.copy(stream)
-		},
-	))
+	connecthttp.Mount(mux, rpc)
 
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
@@ -121,7 +120,7 @@ func TestCopyInArchive(t *testing.T) {
 
 		agent, err := dialFake(t, &fakeGuest{
 			protoRev: protocol.Revision,
-			copy: func(stream *connect.ServerStream[pb.CopyResponse]) error {
+			copy: func(stream sandboxconnect.SandboxContextCopyServerStream) error {
 				return stream.Send(&pb.CopyResponse{Status: pb.CopyResponse_COMPLETE})
 			},
 		})
@@ -141,7 +140,7 @@ func TestCopyInArchive(t *testing.T) {
 
 		agent, err := dialFake(t, &fakeGuest{
 			protoRev: protocol.Revision,
-			copy: func(stream *connect.ServerStream[pb.CopyResponse]) error {
+			copy: func(stream sandboxconnect.SandboxContextCopyServerStream) error {
 				return stream.Send(&pb.CopyResponse{Error: "short archive"})
 			},
 		})
@@ -162,7 +161,7 @@ func TestCopyInArchive(t *testing.T) {
 
 		agent, err := dialFake(t, &fakeGuest{
 			protoRev: protocol.Revision,
-			copy: func(*connect.ServerStream[pb.CopyResponse]) error {
+			copy: func(sandboxconnect.SandboxContextCopyServerStream) error {
 				return nil // stream closes cleanly without ever sending COMPLETE
 			},
 		})
@@ -186,7 +185,7 @@ func TestWrap(t *testing.T) {
 		t.Fatal("wrap(nil) must be nil")
 	}
 
-	underlying := connect.NewError(connect.CodeUnavailable, errors.New("gone"))
+	underlying := connect.NewError(connect.CodeUnavailable, "gone")
 
 	err := wrap(underlying, "mount %s", "/x")
 	if !errors.Is(err, ErrAgent) {

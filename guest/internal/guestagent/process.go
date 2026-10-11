@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/mdlayher/vsock"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"golang.org/x/sys/unix"
@@ -88,12 +88,12 @@ func (a *Agent) CreateProcess(ctx context.Context, req *pb.CreateProcessRequest)
 	a.procs.mu.Unlock()
 
 	if exists {
-		return nil, rpcErrorf(connect.CodeAlreadyExists, "process %s already exists", key)
+		return nil, connect.Errorf(connect.CodeAlreadyExists, "process %s already exists", key)
 	}
 
 	var spec specs.Spec
 	if err := json.Unmarshal(req.GetConfiguration(), &spec); err != nil {
-		return nil, rpcErrorf(connect.CodeInvalidArgument, "parse OCI spec: %v", err)
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "parse OCI spec: %v", err)
 	}
 
 	if err := checkUnsupported(&spec); err != nil {
@@ -102,19 +102,19 @@ func (a *Agent) CreateProcess(ctx context.Context, req *pb.CreateProcessRequest)
 
 	flags, err := cloneFlags(&spec)
 	if err != nil {
-		return nil, rpcErrorf(connect.CodeInvalidArgument, "%v", err)
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "%v", err)
 	}
 
 	// 0o755 matches the standard /run directory mode; the specs inside are 0o600.
 	if err = os.MkdirAll(specDir, stdDirMode); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "create spec dir: %v", err)
+		return nil, connect.Errorf(connect.CodeInternal, "create spec dir: %v", err)
 	}
 
 	specPath := filepath.Join(specDir, strings.ReplaceAll(key, "/", "_")+".json")
 	if err = os.WriteFile(specPath, req.GetConfiguration(), specFileMode); err != nil {
 		_ = os.Remove(specPath) // a failed write can leave a partial file
 
-		return nil, rpcErrorf(connect.CodeInternal, "write spec: %v", err)
+		return nil, connect.Errorf(connect.CodeInternal, "write spec: %v", err)
 	}
 
 	// Everything created between here and a successful cmd.Start must be
@@ -176,7 +176,7 @@ func (a *Agent) CreateProcess(ctx context.Context, req *pb.CreateProcessRequest)
 	if tty {
 		pair, perr := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 		if perr != nil {
-			return nil, abort(rpcErrorf(connect.CodeInternal, "console socketpair: %v", perr))
+			return nil, abort(connect.Errorf(connect.CodeInternal, "console socketpair: %v", perr))
 		}
 
 		consoleAgent = os.NewFile(uintptr(pair[0]), "console-agent")
@@ -186,7 +186,7 @@ func (a *Agent) CreateProcess(ctx context.Context, req *pb.CreateProcessRequest)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return nil, abort(rpcErrorf(connect.CodeInternal, "start stage2: %v", err))
+		return nil, abort(connect.Errorf(connect.CodeInternal, "start stage2: %v", err))
 	}
 
 	// Parent keeps only its ends.
@@ -238,14 +238,14 @@ func (a *Agent) CreateProcess(ctx context.Context, req *pb.CreateProcessRequest)
 		if ferr != nil {
 			kill()
 
-			return nil, rpcErrorf(connect.CodeInternal, "receive pty master: %v", ferr)
+			return nil, connect.Errorf(connect.CodeInternal, "receive pty master: %v", ferr)
 		}
 
 		proc.ttyMaster = os.NewFile(uintptr(masterFD), "pty-master")
 		if err := startTTYRelay(proc, req); err != nil {
 			kill()
 
-			return nil, rpcErrorf(connect.CodeInternal, "tty relay: %v", err)
+			return nil, connect.Errorf(connect.CodeInternal, "tty relay: %v", err)
 		}
 	}
 
@@ -254,7 +254,7 @@ func (a *Agent) CreateProcess(ctx context.Context, req *pb.CreateProcessRequest)
 		a.procs.mu.Unlock()
 		kill()
 
-		return nil, rpcErrorf(connect.CodeAlreadyExists, "process %s already exists", key)
+		return nil, connect.Errorf(connect.CodeAlreadyExists, "process %s already exists", key)
 	}
 
 	a.procs.m[key] = proc
@@ -276,9 +276,8 @@ func awaitStage2Ready(ctx context.Context, readyR, errR *os.File) error {
 
 	select {
 	case <-ctx.Done():
-		// The context's status error must reach the client unwrapped so its
-		// code (Canceled/DeadlineExceeded) survives.
-		return rpcContextError(ctx.Err())
+		// WireErrorText reads the code (Canceled/DeadlineExceeded) through the %w.
+		return fmt.Errorf("awaiting stage2: %w", ctx.Err())
 	case rerr := <-readyCh:
 		if rerr == nil {
 			return nil
@@ -291,7 +290,7 @@ func awaitStage2Ready(ctx context.Context, readyR, errR *os.File) error {
 			detail = rerr.Error()
 		}
 
-		return rpcErrorf(connect.CodeInternal, "stage2 setup: %s", detail)
+		return connect.Errorf(connect.CodeInternal, "stage2 setup: %s", detail)
 	}
 }
 
@@ -312,21 +311,21 @@ func checkUnsupported(spec *specs.Spec) error {
 	}
 
 	if spec.Linux.CgroupsPath != "" {
-		return rpcErrorf(
+		return connect.Errorf(
 			connect.CodeUnimplemented,
 			"linux.cgroupsPath is not supported by this runtime",
 		)
 	}
 
 	if res := spec.Linux.Resources; res != nil && !reflect.DeepEqual(*res, specs.LinuxResources{}) {
-		return rpcErrorf(
+		return connect.Errorf(
 			connect.CodeUnimplemented,
 			"linux.resources is not supported by this runtime",
 		)
 	}
 
 	if spec.Linux.Seccomp != nil {
-		return rpcErrorf(
+		return connect.Errorf(
 			connect.CodeUnimplemented,
 			"linux.seccomp is not supported by this runtime: no syscall filtering is applied, "+
 				"so the profile would be silently ignored",
@@ -389,7 +388,7 @@ func (a *Agent) ResizeProcess(_ context.Context, req *pb.ResizeProcessRequest) (
 
 	rawConn, err := proc.ttyMaster.SyscallConn()
 	if err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, resizeErrFmt, err)
+		return nil, connect.Errorf(connect.CodeInternal, resizeErrFmt, err)
 	}
 
 	var ioErr error
@@ -397,11 +396,11 @@ func (a *Agent) ResizeProcess(_ context.Context, req *pb.ResizeProcessRequest) (
 	if err := rawConn.Control(
 		func(fd uintptr) { ioErr = unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, winsize) },
 	); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, resizeErrFmt, err)
+		return nil, connect.Errorf(connect.CodeInternal, resizeErrFmt, err)
 	}
 
 	if ioErr != nil {
-		return nil, rpcErrorf(connect.CodeInternal, resizeErrFmt, ioErr)
+		return nil, connect.Errorf(connect.CodeInternal, resizeErrFmt, ioErr)
 	}
 
 	return &pb.ResizeProcessResponse{}, nil
@@ -449,7 +448,7 @@ func recvFD(sock *os.File) (int, error) {
 	}
 
 	if len(scms) == 0 {
-		return -1, rpcErrorf(connect.CodeInternal, "no control message")
+		return -1, connect.Errorf(connect.CodeInternal, "no control message")
 	}
 
 	fds, err := unix.ParseUnixRights(&scms[0])
@@ -458,7 +457,7 @@ func recvFD(sock *os.File) (int, error) {
 	}
 
 	if len(fds) == 0 {
-		return -1, rpcErrorf(connect.CodeInternal, "no fd in control message")
+		return -1, connect.Errorf(connect.CodeInternal, "no fd in control message")
 	}
 
 	return fds[0], nil
@@ -472,7 +471,7 @@ func (a *Agent) StartProcess(_ context.Context, req *pb.StartProcessRequest) (*p
 	}
 
 	if _, err := proc.startW.Write([]byte{1}); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "release start gate: %v", err)
+		return nil, connect.Errorf(connect.CodeInternal, "release start gate: %v", err)
 	}
 
 	_ = proc.startW.Close()
@@ -517,7 +516,7 @@ func (a *Agent) WaitProcess(_ context.Context, req *pb.WaitProcessRequest) (*pb.
 	// exit code to report, and fabricating 0 would tell the host the workload
 	// succeeded. Surface the wait error instead.
 	if proc.waitErr != nil && proc.cmd.ProcessState == nil {
-		return nil, rpcErrorf(connect.CodeInternal, "wait %s: %v", req.GetId(), proc.waitErr)
+		return nil, connect.Errorf(connect.CodeInternal, "wait %s: %v", req.GetId(), proc.waitErr)
 	}
 
 	return &pb.WaitProcessResponse{ExitCode: proc.exitCode, ExitedAt: timestamppb.New(proc.exitedAt)}, nil
@@ -554,7 +553,7 @@ func (a *Agent) KillProcess(_ context.Context, req *pb.KillProcessRequest) (*pb.
 	}
 
 	if err := proc.cmd.Process.Signal(syscall.Signal(req.GetSignal())); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "kill: %v", err)
+		return nil, connect.Errorf(connect.CodeInternal, "kill: %v", err)
 	}
 
 	return &pb.KillProcessResponse{}, nil
@@ -566,7 +565,7 @@ func (a *Agent) lookup(processID, containerID string) (*managedProcess, error) {
 
 	proc, ok := a.procs.m[procKey(processID, containerID)]
 	if !ok {
-		return nil, rpcErrorf(connect.CodeNotFound, "no such process %s", procKey(processID, containerID))
+		return nil, connect.Errorf(connect.CodeNotFound, "no such process %s", procKey(processID, containerID))
 	}
 
 	return proc, nil
@@ -636,7 +635,7 @@ func cloneFlags(spec *specs.Spec) (uintptr, error) {
 func osPipe() (r, w *os.File, err error) {
 	r, w, err = os.Pipe()
 	if err != nil {
-		return nil, nil, rpcErrorf(connect.CodeInternal, "pipe: %v", err)
+		return nil, nil, connect.Errorf(connect.CodeInternal, "pipe: %v", err)
 	}
 
 	return r, w, nil

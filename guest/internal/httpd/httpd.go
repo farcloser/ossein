@@ -23,7 +23,7 @@
 //   - No HTTP/2. Bidi streaming is the only thing that would need it, and this
 //     contract has none.
 //   - No request-body size limit. WriteFile legitimately carries large payloads;
-//     bounding it belongs in connect.WithReadMaxBytes, where the error can name
+//     bounding it belongs in connecthttp.WithReadMaxBytes, where the error can name
 //     the RPC, not here where it can only close the connection.
 //   - No Date header, no automatic HEAD/Range/conditional handling. Connect
 //     never issues those.

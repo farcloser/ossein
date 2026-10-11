@@ -8,12 +8,15 @@ package guest
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 
 	"github.com/farcloser/ossein/internal/protocol"
 	pb "github.com/farcloser/ossein/internal/sandbox"
@@ -76,7 +79,7 @@ func Dial(ctx context.Context, dial func(ctx context.Context) (net.Conn, error))
 	client := &http.Client{Transport: transport}
 
 	agent := &Agent{
-		c:    sandboxconnect.NewSandboxContextClient(client, baseURL),
+		c:    sandboxconnect.NewSandboxContextClient(connect.NewClient(connecthttp.NewTransport(client, baseURL))),
 		http: client,
 	}
 
@@ -114,33 +117,33 @@ func (a *Agent) Close() error {
 
 // Mkdir creates a directory in the guest (mkdir -p when all is set).
 func (a *Agent) Mkdir(ctx context.Context, path string, all bool, perms uint32) error {
-	_, err := a.c.Mkdir(ctx, connect.NewRequest(&pb.MkdirRequest{Path: path, All: all, Perms: perms}))
+	_, err := a.c.Mkdir(ctx, &pb.MkdirRequest{Path: path, All: all, Perms: perms})
 
 	return wrap(err, "mkdir %s", path)
 }
 
 // Mount performs a mount(2) in the guest root namespace.
 func (a *Agent) Mount(ctx context.Context, typ, source, destination string, options []string) error {
-	_, err := a.c.Mount(ctx, connect.NewRequest(&pb.MountRequest{
+	_, err := a.c.Mount(ctx, &pb.MountRequest{
 		Type: typ, Source: source, Destination: destination, Options: options,
-	}))
+	})
 
 	return wrap(err, "mount %s on %s", source, destination)
 }
 
 // Umount unmounts a guest path.
 func (a *Agent) Umount(ctx context.Context, path string) error {
-	_, err := a.c.Umount(ctx, connect.NewRequest(&pb.UmountRequest{Path: path}))
+	_, err := a.c.Umount(ctx, &pb.UmountRequest{Path: path})
 
 	return wrap(err, "umount %s", path)
 }
 
 // WriteFile writes data to a guest path, creating parents as needed.
 func (a *Agent) WriteFile(ctx context.Context, path string, data []byte, mode uint32) error {
-	_, err := a.c.WriteFile(ctx, connect.NewRequest(&pb.WriteFileRequest{
+	_, err := a.c.WriteFile(ctx, &pb.WriteFileRequest{
 		Path: path, Data: data, Mode: mode,
 		Flags: &pb.WriteFileRequest_WriteFileFlags{CreateParentDirs: true, CreateIfMissing: true},
-	}))
+	})
 
 	return wrap(err, "write %s", path)
 }
@@ -158,21 +161,31 @@ func (a *Agent) CopyInArchive(ctx context.Context, path, device string) error {
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	stream, err := a.c.Copy(streamCtx, connect.NewRequest(&pb.CopyRequest{
+	stream, err := a.c.Copy(streamCtx, &pb.CopyRequest{
 		Direction:     pb.CopyRequest_COPY_IN,
 		Path:          path,
 		CreateParents: true,
 		Device:        device,
 		IsArchive:     true,
-	}))
+	})
 	if err != nil {
 		return wrap(err, "copy-in %s", path)
 	}
 
 	defer func() { _ = stream.Close() }()
 
-	for stream.Receive() {
-		msg := stream.Msg()
+	for {
+		msg, err := stream.Receive()
+		if errors.Is(err, io.EOF) {
+			// A clean end WITHOUT COMPLETE means the guest handler bailed without
+			// reporting — never treat that as a successful rootfs copy.
+			return fmt.Errorf("%w: copy-in %s: guest closed the stream before COMPLETE", ErrAgent, path)
+		}
+
+		if err != nil {
+			return wrap(err, "copy-in %s", path)
+		}
+
 		if msg.GetError() != "" {
 			return fmt.Errorf("%w: copy-in %s: guest reported: %s", ErrAgent, path, msg.GetError())
 		}
@@ -181,15 +194,6 @@ func (a *Agent) CopyInArchive(ctx context.Context, path, device string) error {
 			return nil
 		}
 	}
-
-	// Receive returned false: either the stream failed, or it ended cleanly.
-	if err := stream.Err(); err != nil {
-		return wrap(err, "copy-in %s", path)
-	}
-
-	// A clean end WITHOUT COMPLETE means the guest handler bailed without
-	// reporting — never treat that as a successful rootfs copy.
-	return fmt.Errorf("%w: copy-in %s: guest closed the stream before COMPLETE", ErrAgent, path)
 }
 
 // --- processes ---
@@ -207,52 +211,43 @@ type StdioPorts struct {
 // init process is procID == containerID — so the wrappers take a single id
 // and set both wire fields. specJSON is the full OCI runtime spec.
 func (a *Agent) CreateProcess(ctx context.Context, processID string, specJSON []byte, stdio StdioPorts) error {
-	_, err := a.c.CreateProcess(ctx, connect.NewRequest(&pb.CreateProcessRequest{
+	_, err := a.c.CreateProcess(ctx, &pb.CreateProcessRequest{
 		Id:            processID,
 		ContainerID:   &processID,
 		Configuration: specJSON,
 		Stdin:         stdio.Stdin,
 		Stdout:        stdio.Stdout,
 		Stderr:        stdio.Stderr,
-	}))
+	})
 
 	return wrap(err, "create process %s", processID)
 }
 
 // StartProcess starts a created process and returns its guest pid.
 func (a *Agent) StartProcess(ctx context.Context, processID string) (int32, error) {
-	resp, err := a.c.StartProcess(
-		ctx,
-		connect.NewRequest(&pb.StartProcessRequest{Id: processID, ContainerID: &processID}),
-	)
+	resp, err := a.c.StartProcess(ctx, &pb.StartProcessRequest{Id: processID, ContainerID: &processID})
 	if err != nil {
 		return 0, wrap(err, "start process %s", processID)
 	}
 
-	return resp.Msg.GetPid(), nil
+	return resp.GetPid(), nil
 }
 
 // WaitProcess blocks until the process exits and returns its exit code.
 func (a *Agent) WaitProcess(ctx context.Context, processID string) (int32, error) {
-	resp, err := a.c.WaitProcess(
-		ctx,
-		connect.NewRequest(&pb.WaitProcessRequest{Id: processID, ContainerID: &processID}),
-	)
+	resp, err := a.c.WaitProcess(ctx, &pb.WaitProcessRequest{Id: processID, ContainerID: &processID})
 	if err != nil {
 		return -1, wrap(err, "wait process %s", processID)
 	}
 
-	return resp.Msg.GetExitCode(), nil
+	return resp.GetExitCode(), nil
 }
 
 // KillProcess signals the process. The response's `result` field is vestigial
 // Apple-proto surface — the guest reports failure via the RPC error code and
 // always leaves it zero — so only the error is meaningful.
 func (a *Agent) KillProcess(ctx context.Context, processID string, signal int32) error {
-	_, err := a.c.KillProcess(
-		ctx,
-		connect.NewRequest(&pb.KillProcessRequest{Id: processID, ContainerID: &processID, Signal: signal}),
-	)
+	_, err := a.c.KillProcess(ctx, &pb.KillProcessRequest{Id: processID, ContainerID: &processID, Signal: signal})
 
 	return wrap(err, "kill process %s", processID)
 }
@@ -261,9 +256,7 @@ func (a *Agent) KillProcess(ctx context.Context, processID string, signal int32)
 func (a *Agent) ResizeProcess(ctx context.Context, processID string, rows, cols uint32) error {
 	_, err := a.c.ResizeProcess(
 		ctx,
-		connect.NewRequest(
-			&pb.ResizeProcessRequest{Id: processID, ContainerID: &processID, Rows: rows, Columns: cols},
-		),
+		&pb.ResizeProcessRequest{Id: processID, ContainerID: &processID, Rows: rows, Columns: cols},
 	)
 
 	return wrap(err, "resize process %s", processID)
@@ -271,10 +264,7 @@ func (a *Agent) ResizeProcess(ctx context.Context, processID string, rows, cols 
 
 // CloseProcessStdin closes the guest-side stdin of the process.
 func (a *Agent) CloseProcessStdin(ctx context.Context, processID string) error {
-	_, err := a.c.CloseProcessStdin(
-		ctx,
-		connect.NewRequest(&pb.CloseProcessStdinRequest{Id: processID, ContainerID: &processID}),
-	)
+	_, err := a.c.CloseProcessStdin(ctx, &pb.CloseProcessStdinRequest{Id: processID, ContainerID: &processID})
 
 	return wrap(err, "close stdin %s", processID)
 }
@@ -283,34 +273,28 @@ func (a *Agent) CloseProcessStdin(ctx context.Context, processID string) error {
 
 // LinkUp brings a guest network interface up.
 func (a *Agent) LinkUp(ctx context.Context, iface string) error {
-	_, err := a.c.IpLinkSet(ctx, connect.NewRequest(&pb.IpLinkSetRequest{Interface: iface, Up: true}))
+	_, err := a.c.IpLinkSet(ctx, &pb.IpLinkSetRequest{Interface: iface, Up: true})
 
 	return wrap(err, "link up %s", iface)
 }
 
 // AddrAdd assigns a CIDR (e.g. "192.168.127.2/24") to iface.
 func (a *Agent) AddrAdd(ctx context.Context, iface, cidr string) error {
-	_, err := a.c.IpAddrAdd(ctx, connect.NewRequest(&pb.IpAddrAddRequest{Interface: iface, Ipv4Address: cidr}))
+	_, err := a.c.IpAddrAdd(ctx, &pb.IpAddrAddRequest{Interface: iface, Ipv4Address: cidr})
 
 	return wrap(err, "addr add %s %s", iface, cidr)
 }
 
 // RouteAddDefault installs the guest's default route via gateway.
 func (a *Agent) RouteAddDefault(ctx context.Context, iface, gateway string) error {
-	_, err := a.c.IpRouteAddDefault(
-		ctx,
-		connect.NewRequest(&pb.IpRouteAddDefaultRequest{Interface: iface, Ipv4Gateway: gateway}),
-	)
+	_, err := a.c.IpRouteAddDefault(ctx, &pb.IpRouteAddDefaultRequest{Interface: iface, Ipv4Gateway: gateway})
 
 	return wrap(err, "default route via %s", gateway)
 }
 
 // ConfigureDNS writes a resolv.conf at location (an absolute guest path).
 func (a *Agent) ConfigureDNS(ctx context.Context, location string, nameservers []string) error {
-	_, err := a.c.ConfigureDns(
-		ctx,
-		connect.NewRequest(&pb.ConfigureDnsRequest{Location: location, Nameservers: nameservers}),
-	)
+	_, err := a.c.ConfigureDns(ctx, &pb.ConfigureDnsRequest{Location: location, Nameservers: nameservers})
 
 	return wrap(err, "configure dns at %s", location)
 }
@@ -330,10 +314,7 @@ func (a *Agent) ConfigureHosts(ctx context.Context, location string, entries []H
 		})
 	}
 
-	_, err := a.c.ConfigureHosts(
-		ctx,
-		connect.NewRequest(&pb.ConfigureHostsRequest{Location: location, Entries: pbEntries}),
-	)
+	_, err := a.c.ConfigureHosts(ctx, &pb.ConfigureHostsRequest{Location: location, Entries: pbEntries})
 
 	return wrap(err, "configure hosts at %s", location)
 }
@@ -342,21 +323,21 @@ func (a *Agent) ConfigureHosts(ctx context.Context, location string, entries []H
 
 // Getenv reads one environment variable from the guest agent's process.
 func (a *Agent) Getenv(ctx context.Context, key string) (string, error) {
-	resp, err := a.c.Getenv(ctx, connect.NewRequest(&pb.GetenvRequest{Key: key}))
+	resp, err := a.c.Getenv(ctx, &pb.GetenvRequest{Key: key})
 	if err != nil {
 		return "", wrap(err, "getenv %s", key)
 	}
 
-	return resp.Msg.GetValue(), nil
+	return resp.GetValue(), nil
 }
 
 // SetupEmulator registers a binfmt_misc handler — the Rosetta hook. Values
 // mirror the documented rosetta binfmt registration line.
 func (a *Agent) SetupEmulator(ctx context.Context, name, binaryPath, offset, magic, mask, flags string) error {
-	_, err := a.c.SetupEmulator(ctx, connect.NewRequest(&pb.SetupEmulatorRequest{
+	_, err := a.c.SetupEmulator(ctx, &pb.SetupEmulatorRequest{
 		BinaryPath: binaryPath, Name: name, Type: "M",
 		Offset: offset, Magic: magic, Mask: mask, Flags: flags,
-	}))
+	})
 
 	return wrap(err, "setup emulator %s", name)
 }
@@ -371,9 +352,9 @@ func (a *Agent) SetupEmulator(ctx context.Context, name, binaryPath, offset, mag
 // (push host services into the guest). guestPath is resolved in the guest
 // ROOT namespace — container sockets must be rootfs-prefixed.
 func (a *Agent) ProxyVsockOutOf(ctx context.Context, id string, vsockPort uint32, guestPath string) error {
-	_, err := a.c.ProxyVsock(ctx, connect.NewRequest(&pb.ProxyVsockRequest{
+	_, err := a.c.ProxyVsock(ctx, &pb.ProxyVsockRequest{
 		Id: id, VsockPort: vsockPort, GuestPath: guestPath, Action: pb.ProxyVsockRequest_OUT_OF,
-	}))
+	})
 
 	return wrap(err, "proxy vsock %d -> %s", vsockPort, guestPath)
 }
@@ -381,14 +362,14 @@ func (a *Agent) ProxyVsockOutOf(ctx context.Context, id string, vsockPort uint32
 // StopVsockProxy tears down a proxy previously registered under id, closing
 // the guest-side listener.
 func (a *Agent) StopVsockProxy(ctx context.Context, id string) error {
-	_, err := a.c.StopVsockProxy(ctx, connect.NewRequest(&pb.StopVsockProxyRequest{Id: id}))
+	_, err := a.c.StopVsockProxy(ctx, &pb.StopVsockProxyRequest{Id: id})
 
 	return wrap(err, "stop vsock proxy %s", id)
 }
 
 // Sync flushes guest page cache to backing devices (sync(2)).
 func (a *Agent) Sync(ctx context.Context) error {
-	_, err := a.c.Sync(ctx, connect.NewRequest(&pb.SyncRequest{}))
+	_, err := a.c.Sync(ctx, &pb.SyncRequest{})
 
 	return wrap(err, "sync")
 }

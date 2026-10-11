@@ -13,11 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/mycophonic/primordium/bytesize"
 
 	"github.com/farcloser/ossein/guest/internal/httpd"
 	pb "github.com/farcloser/ossein/internal/sandbox"
+	"github.com/farcloser/ossein/internal/sandbox/sandboxconnect"
 )
 
 // errMismatch reports an unexpected echo from the test handler.
@@ -76,57 +78,65 @@ func request(path, body, extra string) string {
 
 // --- the actual contract: a real Connect client over this server ---
 
+// fakeService answers the three procedures the tests below exercise and
+// inherits Unimplemented for the rest.
+type fakeService struct {
+	sandboxconnect.UnimplementedSandboxContextHandler
+}
+
+func (fakeService) Getenv(_ context.Context, req *pb.GetenvRequest) (*pb.GetenvResponse, error) {
+	value := req.GetKey()
+
+	return &pb.GetenvResponse{Value: &value}, nil
+}
+
+func (fakeService) Copy(
+	_ context.Context, _ *pb.CopyRequest, stream sandboxconnect.SandboxContextCopyServerStream,
+) error {
+	for range 3 {
+		if err := stream.Send(&pb.CopyResponse{Status: pb.CopyResponse_METADATA}); err != nil {
+			return err
+		}
+	}
+
+	return stream.Send(&pb.CopyResponse{Status: pb.CopyResponse_COMPLETE})
+}
+
+func (fakeService) Stat(_ context.Context, _ *pb.StatRequest) (*pb.StatResponse, error) {
+	return nil, connect.NewError(connect.CodeNotFound, "nope")
+}
+
 func connectHandler() http.Handler {
+	rpc := connect.NewServer()
+	sandboxconnect.RegisterSandboxContextHandler(rpc, fakeService{})
+
 	mux := http.NewServeMux()
-
-	mux.Handle("/x.v1/Getenv", connect.NewUnaryHandler("/x.v1/Getenv",
-		func(_ context.Context, req *connect.Request[pb.GetenvRequest],
-		) (*connect.Response[pb.GetenvResponse], error) {
-			value := req.Msg.GetKey()
-
-			return connect.NewResponse(&pb.GetenvResponse{Value: &value}), nil
-		}))
-
-	mux.Handle("/x.v1/Copy", connect.NewServerStreamHandler("/x.v1/Copy",
-		func(_ context.Context, _ *connect.Request[pb.CopyRequest],
-			stream *connect.ServerStream[pb.CopyResponse],
-		) error {
-			for range 3 {
-				if err := stream.Send(&pb.CopyResponse{Status: pb.CopyResponse_METADATA}); err != nil {
-					return err
-				}
-			}
-
-			return stream.Send(&pb.CopyResponse{Status: pb.CopyResponse_COMPLETE})
-		}))
-
-	mux.Handle("/x.v1/Fail", connect.NewUnaryHandler("/x.v1/Fail",
-		func(_ context.Context, _ *connect.Request[pb.GetenvRequest],
-		) (*connect.Response[pb.GetenvResponse], error) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("nope"))
-		}))
+	connecthttp.Mount(mux, rpc)
 
 	return mux
+}
+
+func connectClient(addr string) sandboxconnect.SandboxContextClient {
+	return sandboxconnect.NewSandboxContextClient(
+		connect.NewClient(connecthttp.NewTransport(http.DefaultClient, "http://"+addr)),
+	)
 }
 
 func TestConnectUnary(t *testing.T) {
 	t.Parallel()
 
-	addr := start(t, connectHandler(), time.Second)
-	client := connect.NewClient[pb.GetenvRequest, pb.GetenvResponse](
-		http.DefaultClient, "http://"+addr+"/x.v1/Getenv",
-	)
+	client := connectClient(start(t, connectHandler(), time.Second))
 
 	// Several calls on one client: proves keep-alive framing, not just the first
 	// response.
 	for index, key := range []string{"A", "B", "C"} {
-		resp, err := client.CallUnary(t.Context(), connect.NewRequest(&pb.GetenvRequest{Key: key}))
+		resp, err := client.Getenv(t.Context(), &pb.GetenvRequest{Key: key})
 		if err != nil {
 			t.Fatalf("call %d: %v", index, err)
 		}
 
-		if resp.Msg.GetValue() != key {
-			t.Fatalf("call %d: got %q want %q", index, resp.Msg.GetValue(), key)
+		if resp.GetValue() != key {
+			t.Fatalf("call %d: got %q want %q", index, resp.GetValue(), key)
 		}
 	}
 }
@@ -134,12 +144,9 @@ func TestConnectUnary(t *testing.T) {
 func TestConnectServerStream(t *testing.T) {
 	t.Parallel()
 
-	addr := start(t, connectHandler(), time.Second)
-	client := connect.NewClient[pb.CopyRequest, pb.CopyResponse](
-		http.DefaultClient, "http://"+addr+"/x.v1/Copy",
-	)
+	client := connectClient(start(t, connectHandler(), time.Second))
 
-	stream, err := client.CallServerStream(t.Context(), connect.NewRequest(&pb.CopyRequest{Path: "/r"}))
+	stream, err := client.Copy(t.Context(), &pb.CopyRequest{Path: "/r"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,16 +157,21 @@ func TestConnectServerStream(t *testing.T) {
 
 	var complete bool
 
-	for stream.Receive() {
+	for {
+		msg, err := stream.Receive()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		if err != nil {
+			t.Fatalf("after %d messages: %v", count, err)
+		}
+
 		count++
 
-		if stream.Msg().GetStatus() == pb.CopyResponse_COMPLETE {
+		if msg.GetStatus() == pb.CopyResponse_COMPLETE {
 			complete = true
 		}
-	}
-
-	if err := stream.Err(); err != nil {
-		t.Fatalf("after %d messages: %v", count, err)
 	}
 
 	if count != 4 || !complete {
@@ -172,12 +184,9 @@ func TestConnectServerStream(t *testing.T) {
 func TestConnectErrorCode(t *testing.T) {
 	t.Parallel()
 
-	addr := start(t, connectHandler(), time.Second)
-	client := connect.NewClient[pb.GetenvRequest, pb.GetenvResponse](
-		http.DefaultClient, "http://"+addr+"/x.v1/Fail",
-	)
+	client := connectClient(start(t, connectHandler(), time.Second))
 
-	_, err := client.CallUnary(t.Context(), connect.NewRequest(&pb.GetenvRequest{Key: "k"}))
+	_, err := client.Stat(t.Context(), &pb.StatRequest{})
 	if err == nil {
 		t.Fatal("want an error")
 	}
@@ -443,10 +452,7 @@ func TestMalformedRequestGets400AndServerSurvives(t *testing.T) {
 	}
 
 	// Still serving?
-	client := connect.NewClient[pb.GetenvRequest, pb.GetenvResponse](
-		http.DefaultClient, "http://"+addr+"/x.v1/Getenv",
-	)
-	if _, err := client.CallUnary(t.Context(), connect.NewRequest(&pb.GetenvRequest{Key: "k"})); err != nil {
+	if _, err := connectClient(addr).Getenv(t.Context(), &pb.GetenvRequest{Key: "k"}); err != nil {
 		t.Fatalf("server died after a malformed request: %v", err)
 	}
 }
@@ -580,22 +586,22 @@ func TestConcurrentConnections(t *testing.T) {
 
 	for index := range 16 {
 		waiters.Go(func() {
-			client := connect.NewClient[pb.GetenvRequest, pb.GetenvResponse](
-				&http.Client{}, "http://"+addr+"/x.v1/Getenv",
+			// One http.Client per goroutine: a connection each, not a shared pool.
+			client := sandboxconnect.NewSandboxContextClient(
+				connect.NewClient(connecthttp.NewTransport(&http.Client{}, "http://"+addr)),
 			)
 
 			key := fmt.Sprintf("k%d", index)
 
-			resp, err := client.CallUnary(t.Context(),
-				connect.NewRequest(&pb.GetenvRequest{Key: key}))
+			resp, err := client.Getenv(t.Context(), &pb.GetenvRequest{Key: key})
 			if err != nil {
 				errs <- err
 
 				return
 			}
 
-			if resp.Msg.GetValue() != key {
-				errs <- fmt.Errorf("%w: got %q want %q", errMismatch, resp.Msg.GetValue(), key)
+			if resp.GetValue() != key {
+				errs <- fmt.Errorf("%w: got %q want %q", errMismatch, resp.GetValue(), key)
 			}
 		})
 	}

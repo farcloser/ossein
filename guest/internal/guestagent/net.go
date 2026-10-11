@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 
@@ -27,21 +27,21 @@ const linkErrFmt = "link %s: %v"
 func (*Agent) IpLinkSet(_ context.Context, req *pb.IpLinkSetRequest) (*pb.IpLinkSetResponse, error) {
 	link, err := netlink.LinkByName(req.GetInterface())
 	if err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, linkErrFmt, req.GetInterface(), err)
+		return nil, connect.Errorf(connect.CodeInternal, linkErrFmt, req.GetInterface(), err)
 	}
 
 	if req.Mtu != nil {
 		if err := netlink.LinkSetMTU(link, int(req.GetMtu())); err != nil {
-			return nil, rpcErrorf(connect.CodeInternal, "set mtu on %s: %v", req.GetInterface(), err)
+			return nil, connect.Errorf(connect.CodeInternal, "set mtu on %s: %v", req.GetInterface(), err)
 		}
 	}
 
 	if req.GetUp() {
 		if err := netlink.LinkSetUp(link); err != nil {
-			return nil, rpcErrorf(connect.CodeInternal, "link up %s: %v", req.GetInterface(), err)
+			return nil, connect.Errorf(connect.CodeInternal, "link up %s: %v", req.GetInterface(), err)
 		}
 	} else if err := netlink.LinkSetDown(link); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "link down %s: %v", req.GetInterface(), err)
+		return nil, connect.Errorf(connect.CodeInternal, "link down %s: %v", req.GetInterface(), err)
 	}
 
 	return &pb.IpLinkSetResponse{}, nil
@@ -54,7 +54,7 @@ func (*Agent) IpLinkSet(_ context.Context, req *pb.IpLinkSetRequest) (*pb.IpLink
 func (*Agent) IpAddrAdd(_ context.Context, req *pb.IpAddrAddRequest) (*pb.IpAddrAddResponse, error) {
 	link, err := netlink.LinkByName(req.GetInterface())
 	if err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, linkErrFmt, req.GetInterface(), err)
+		return nil, connect.Errorf(connect.CodeInternal, linkErrFmt, req.GetInterface(), err)
 	}
 
 	for _, cidr := range []string{req.GetIpv4Address(), req.GetIpv6Address()} {
@@ -64,11 +64,11 @@ func (*Agent) IpAddrAdd(_ context.Context, req *pb.IpAddrAddRequest) (*pb.IpAddr
 
 		addr, err := netlink.ParseAddr(cidr)
 		if err != nil {
-			return nil, rpcErrorf(connect.CodeInvalidArgument, "parse addr %q: %v", cidr, err)
+			return nil, connect.Errorf(connect.CodeInvalidArgument, "parse addr %q: %v", cidr, err)
 		}
 
 		if err := netlink.AddrAdd(link, addr); err != nil {
-			return nil, rpcErrorf(connect.CodeInternal, "add addr %s to %s: %v", cidr, req.GetInterface(), err)
+			return nil, connect.Errorf(connect.CodeInternal, "add addr %s to %s: %v", cidr, req.GetInterface(), err)
 		}
 	}
 
@@ -85,7 +85,7 @@ func (*Agent) IpRouteAddDefault(
 ) (*pb.IpRouteAddDefaultResponse, error) {
 	link, err := netlink.LinkByName(req.GetInterface())
 	if err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, linkErrFmt, req.GetInterface(), err)
+		return nil, connect.Errorf(connect.CodeInternal, linkErrFmt, req.GetInterface(), err)
 	}
 
 	for _, gateway := range []string{req.GetIpv4Gateway(), req.GetIpv6Gateway()} {
@@ -95,11 +95,11 @@ func (*Agent) IpRouteAddDefault(
 
 		ip := net.ParseIP(gateway)
 		if ip == nil {
-			return nil, rpcErrorf(connect.CodeInvalidArgument, "parse gateway %q", gateway)
+			return nil, connect.Errorf(connect.CodeInvalidArgument, "parse gateway %q", gateway)
 		}
 		// Dst nil => default route.
 		if err := netlink.RouteAdd(&netlink.Route{LinkIndex: link.Attrs().Index, Gw: ip}); err != nil {
-			return nil, rpcErrorf(connect.CodeInternal, "add default route via %s: %v", gateway, err)
+			return nil, connect.Errorf(connect.CodeInternal, "add default route via %s: %v", gateway, err)
 		}
 	}
 
@@ -130,7 +130,7 @@ func (*Agent) ConfigureDns(_ context.Context, req *pb.ConfigureDnsRequest) (*pb.
 	}
 
 	if err := writeRootfsFile(req.GetLocation(), "etc/resolv.conf", builder.String()); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "write resolv.conf: %v", err)
+		return nil, connect.Errorf(connect.CodeInternal, "write resolv.conf: %v", err)
 	}
 
 	return &pb.ConfigureDnsResponse{}, nil
@@ -151,7 +151,7 @@ func (*Agent) ConfigureHosts(_ context.Context, req *pb.ConfigureHostsRequest) (
 	}
 
 	if err := writeRootfsFile(req.GetLocation(), "etc/hosts", builder.String()); err != nil {
-		return nil, rpcErrorf(connect.CodeInternal, "write hosts: %v", err)
+		return nil, connect.Errorf(connect.CodeInternal, "write hosts: %v", err)
 	}
 
 	return &pb.ConfigureHostsResponse{}, nil
