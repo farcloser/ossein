@@ -25,8 +25,8 @@ guest_kernel_issuer := "https://github.com/login/oauth"
 # Renovate moves tag and digest, here and in cmd/ossein/main.go's fallback literal, in the
 # same pull request as the client module; `just buildkit-digest <tag>` resolves one by hand.
 buildkit_repo := "docker.io/moby/buildkit"
-buildkit_tag := "v0.33.1"
-buildkit_digest := "sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea"
+buildkit_tag := "v0.34.0"
+buildkit_digest := "sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c"
 buildkit_ref := buildkit_repo + ":" + buildkit_tag + "@" + buildkit_digest
 
 # The FIRST recipe defined here becomes `just`'s default.
