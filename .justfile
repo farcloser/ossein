@@ -251,7 +251,7 @@ proto:
       --connect-go_out=internal/sandbox --connect-go_opt=paths=source_relative \
       --connect-go_opt=MSandboxContext.proto=github.com/farcloser/ossein/internal/sandbox \
       proto/SandboxContext.proto
-    golangci-lint fmt
+    just do fix go
 
 # ---------------------------------------------------------------------------
 # Benches. Kernels and perf-arm64 come from ../ossein-kernel/build (build them
