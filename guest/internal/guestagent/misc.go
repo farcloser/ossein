@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"golang.org/x/sys/unix"
 
 	pb "github.com/farcloser/ossein/internal/sandbox"

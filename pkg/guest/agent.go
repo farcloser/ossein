@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
 	"github.com/farcloser/ossein/internal/protocol"
 	pb "github.com/farcloser/ossein/internal/sandbox"

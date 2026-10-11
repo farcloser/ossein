@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"golang.org/x/sys/unix"
 
 	"github.com/farcloser/ossein/guest/internal/vmexec"

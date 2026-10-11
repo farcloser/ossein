@@ -5,7 +5,7 @@ package guestagent
 import (
 	"context"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
 	pb "github.com/farcloser/ossein/internal/sandbox"
 	"github.com/farcloser/ossein/internal/sandbox/sandboxconnect"

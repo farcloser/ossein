@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 )
 
 // rpcErrorf returns a coded RPC error, the Connect equivalent of grpc's

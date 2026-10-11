@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"strings"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/mycophonic/primordium/bytesize"
 	"golang.org/x/sys/unix"
 

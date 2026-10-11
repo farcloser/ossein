@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/mdlayher/vsock"
 	"golang.org/x/sys/unix"
 

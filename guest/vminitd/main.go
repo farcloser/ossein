@@ -24,7 +24,7 @@ import (
 	"syscall"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/mdlayher/vsock"
 	"github.com/mycophonic/primordium/bytesize"
 	"golang.org/x/sys/unix"

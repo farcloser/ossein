@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 

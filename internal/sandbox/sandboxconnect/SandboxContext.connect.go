@@ -10,7 +10,7 @@ import (
 	http "net/http"
 	strings "strings"
 
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 
 	sandbox "github.com/farcloser/ossein/internal/sandbox"
 )
