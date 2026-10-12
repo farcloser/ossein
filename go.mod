@@ -21,7 +21,7 @@ require (
 	github.com/moby/sys/capability v0.4.0
 	github.com/mycophonic/primordium v0.14.0
 	github.com/opencontainers/runtime-spec v1.3.0
-	github.com/tonistiigi/fsutil v0.0.0-20260819142231-83cac42c1c52
+	github.com/tonistiigi/fsutil v0.0.0-20261009124904-c1c5bffae3b5
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/mod v0.41.0
 	golang.org/x/sys v0.49.0
