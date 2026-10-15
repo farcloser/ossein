@@ -138,6 +138,7 @@ Each edit is marked `OSSEIN FORK` in the source.
    ATX. Re-normalize after any fork refresh, or the whole lint gate goes red
    over code nobody is reviewing.
 7. **Stripped to the bone** — see below.
+8. **Legacy `// +build` lines dropped.** Only toolchains before Go 1.17 read them.
 
 ## What was stripped, and why
 
