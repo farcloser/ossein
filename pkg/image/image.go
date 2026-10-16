@@ -796,7 +796,7 @@ func acquireRecord(store Cache, identifier string, fetch content.FetchFunc) (*re
 	}
 
 	for attempt := range 2 {
-		pin, err := store.AcquireFile(identifier, nil, traced)
+		pin, err := store.AcquireFile(identifier, digest.Digest{}, traced)
 		if err != nil {
 			if fetchErr != nil {
 				return nil, fetchErr
@@ -846,7 +846,7 @@ func acquireRecord(store Cache, identifier string, fetch content.FetchFunc) (*re
 // store could not persist the blob leaves the same useless entry behind.
 // Dropping it here turns a permanent failure into a one-boot one.
 func (i *Image) RootfsFile() (*cache.PinnedFile, error) {
-	pin, err := i.cache.AcquireFile(i.identifier, nil, i.flatten)
+	pin, err := i.cache.AcquireFile(i.identifier, digest.Digest{}, i.flatten)
 	if err == nil {
 		return pin, nil
 	}

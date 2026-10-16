@@ -21,6 +21,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/mycophonic/primordium/bytesize"
+	"github.com/mycophonic/primordium/digest"
 	blobcache "github.com/mycophonic/primordium/store/cache"
 
 	"github.com/farcloser/ossein/internal/rootfsblob"
@@ -31,14 +32,14 @@ import (
 func newTestImage(t *testing.T, cache Cache, source v1.Image, identifier string) *Image {
 	t.Helper()
 
-	digest, err := source.Digest()
+	dgst, err := source.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	return &Image{
 		Ref:        "test/img:latest",
-		Digest:     digest.Hex,
+		Digest:     dgst.Hex,
 		cache:      cache,
 		source:     source,
 		identifier: identifier,
@@ -339,7 +340,7 @@ func writeRaw(t *testing.T, store Cache, identifier string, raw []byte) {
 		t.Fatal(err)
 	}
 
-	pin, err := store.AcquireFile(identifier, nil, func() (io.ReadCloser, error) {
+	pin, err := store.AcquireFile(identifier, digest.Digest{}, func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(raw)), nil
 	})
 	if err != nil {
