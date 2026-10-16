@@ -6,7 +6,7 @@
 //	host unix socket → bidiPipe (pkg/container) → vz vsock →
 //	guest agent bidiCopy (vsock ⇄ unix) → the container's unix socket
 //
-// It boots a container running hack/vsockpeer (bind-mounted in from build/),
+// It boots a container running hack/vsockpeer (bind-mounted in from .build/),
 // exposes the peer's socket with Instance.ExposeUnix exactly as the buildkit
 // command does, then pushes (host→guest) and pulls (guest→host) N bytes over
 // one or more concurrent connections and reports MiB/s.
@@ -14,11 +14,11 @@
 // The client's own copy loop uses a 1 MiB buffer with the ReaderFrom/WriterTo
 // fast paths hidden, so what is measured is the relay, not this program.
 //
-//	build/vsockbench -size 2GiB -streams 1 -runs 3
+//	.build/vsockbench -size 2GiB -streams 1 -runs 3
 //
-// Requires the VZ entitlement (codesign like build/ossein) and the guest
+// Requires the VZ entitlement (codesign like .build/ossein) and the guest
 // artifacts: -kernel (default pkg/guestartifacts/kernel-arm64) and -initfs
-// (default build/initfs.cpio, so a rebuilt guest agent is what gets measured).
+// (default .build/initfs.cpio, so a rebuilt guest agent is what gets measured).
 package main
 
 import (
@@ -83,8 +83,8 @@ func main() {
 
 	flag.StringVar(&opts.image, "image", defaultImage, "container image (needs nothing but a shell)")
 	flag.StringVar(&opts.kernel, "kernel", "pkg/guestartifacts/kernel-arm64", "guest kernel")
-	flag.StringVar(&opts.initfs, "initfs", "build/initfs.cpio", "vminitd initfs (the guest agent under test)")
-	flag.StringVar(&opts.benchDir, "bench-dir", "build", "host dir holding vsockpeer; bind-mounted at "+guestBench)
+	flag.StringVar(&opts.initfs, "initfs", ".build/initfs.cpio", "vminitd initfs (the guest agent under test)")
+	flag.StringVar(&opts.benchDir, "bench-dir", ".build", "host dir holding vsockpeer; bind-mounted at "+guestBench)
 	flag.Func("size", "per stream per run, with a unit or in bytes (default 2GiB)", func(value string) error {
 		size, err := human.ParseSize(value)
 		if err != nil {

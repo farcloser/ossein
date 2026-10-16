@@ -53,7 +53,7 @@ CPUSET="0-$((CPUS - 1))"     # docker affinity mask -> nproc == CPUS
 CCPUS=$((CPUS - 1))          # apple-container runs requested+1 vCPUs -> --cpus $CCPUS == CPUS
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-B="$HERE/build"
+B="$HERE/.build"
 # perf-arm64 is built inside the kernel factory's Debian (trixie) and links that glibc; a
 # container on an older Debian refuses it ("GLIBC_2.38 not found"). Keep this at least
 # the factory's suite (ossein-kernel .justfile, kernel_debian_suite).
@@ -257,7 +257,7 @@ if ! focus_skip && lima_avail; then
     row "lima" "(no CLI)" "SKIPPED — no nerdctl/docker/podman inside the lima VM"
   else
     # `-v` binds a host path only if lima mounts it into the VM (default: ~ and /tmp/lima).
-    # build/ under $HOME is reachable read-only, which is all perf needs (read+exec).
+    # .build/ under $HOME is reachable read-only, which is all perf needs (read+exec).
     lima_err="$(lima "$LIMA_CLI" run --rm "$IMG" nproc 2>&1 >/dev/null | tr '\n' ' ')"
     LIMA_NP=$(lima "$LIMA_CLI" run --rm "$IMG" nproc 2>/dev/null | tr -d '[:space:]')
     if [ "$LIMA_NP" = "$CPUS" ]; then

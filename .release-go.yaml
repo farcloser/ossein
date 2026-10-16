@@ -4,7 +4,7 @@
 # the vendored vz needs the macOS 26 SDK.
 version: 2
 project_name: ossein
-dist: build/release
+dist: .build/release
 
 before:
   hooks:

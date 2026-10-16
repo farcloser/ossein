@@ -37,15 +37,15 @@ buildkit_ref := buildkit_repo + ":" + buildkit_tag + "@" + buildkit_digest
 # they are not optional extras: without them the PID-1 code ships unanalyzed and
 # the linux-only bench tools are analyzed by nothing at all.
 lint: _guest-artifacts do::lint::default do::lint::go::default do::lint::go::deadcode tools-lint
-    # build/tools/golangci-lint, on the build/golangci.yml it renders, is built
+    # .build/tools/golangci-lint, on the .build/golangci.yml it renders, is built
     # natively by the shared leg this recipe depends on; run it, not a PATH one.
-    {{ linux_env }} build/tools/golangci-lint run -c build/golangci.yml {{ guest_pkgs }}
+    {{ linux_env }} .build/tools/golangci-lint run -c .build/golangci.yml {{ guest_pkgs }}
 
 # The security lane plus the guest's half of it: the shared vuln leg scans what
-# builds natively, and the guest is linux-only. build/tools/govulncheck is built
+# builds natively, and the guest is linux-only. .build/tools/govulncheck is built
 # by that leg.
 security: _guest-artifacts do::security::default
-    {{ linux_env }} build/tools/govulncheck {{ guest_pkgs }}
+    {{ linux_env }} .build/tools/govulncheck {{ guest_pkgs }}
 
 fix: do::fix::default do::fix::go::default
 test: _guest-artifacts do::test::go::default guest-check
@@ -90,7 +90,7 @@ guest-check:
 # Requires a working `just build` and a host that can boot a VM. Not wired into
 # `test` for that reason — a green `just test` must not depend on the machine
 # holding a virtualization entitlement.
-guest-test dir=(justfile_directory() / "build/guest-tests"):
+guest-test dir=(justfile_directory() / ".build/guest-tests"):
     #!/usr/bin/env bash
     set -euo pipefail
     rm -rf {{ dir }} && mkdir -p {{ dir }}
@@ -118,13 +118,13 @@ guest-test dir=(justfile_directory() / "build/guest-tests"):
     done
     RUNNER
     chmod +x {{ dir }}/run.sh
-    ./build/ossein run --privileged --no-network -v "{{ dir }}:/t" \
+    ./.build/ossein run --privileged --no-network -v "{{ dir }}:/t" \
         docker.io/library/alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 /t/run.sh
 
 # hack/bench is //go:build linux, so the native legs never load it. ./hack/...
 # rather than the one package: whatever lands here next is covered by default.
 tools-lint:
-    {{ linux_env }} build/tools/golangci-lint run -c build/golangci.yml ./hack/...
+    {{ linux_env }} .build/tools/golangci-lint run -c .build/golangci.yml ./hack/...
 
 # Shared host↔guest constants (vsock port, protocol revision, init path) live in
 # internal/protocol; never copy one into each side.
@@ -141,23 +141,23 @@ export BUILD_GO_LDFLAGS := '-X main.buildkitImage=' + buildkit_ref
 # rather than touching Virtualization itself.
 #
 # The binary is finished under a scratch name and swapped in with ONE rename.
-# Never touch build/ossein in place: macOS SIGKILLs a running process whose
+# Never touch .build/ossein in place: macOS SIGKILLs a running process whose
 # mapped code changes under it ("Killed: 9", exit 137), and both steps here do
 # exactly that when pointed at the live file — go's cached-link path copies
-# into the existing inode, and codesign always rewrites in place. A bench or
-# a sibling project (build-curl points its OSSEIN_BIN here) may be mid-run.
+# into the existing inode, and codesign always rewrites in place. A bench, or
+# an ossein-docker pointed here through OSSEIN_BIN, may be mid-run.
 build: fetch-kernel _embed-initfs
     #!/usr/bin/env bash
     set -euo pipefail
     # Unlink first: a running instance keeps the old inode alive, and go then
     # creates a fresh file instead of copying into the live one.
-    rm -f build/ossein build/ossein.new build/ossein-docker
+    rm -f .build/ossein .build/ossein.new .build/ossein-docker
     just do build go
     # Sign a copy and swap it in: codesign rewrites in place, and the fresh
     # (still unsigned) file may already have been exec'd by someone.
-    cp build/ossein build/ossein.new
-    codesign --force --sign - --timestamp=none --entitlements vz.entitlements build/ossein.new
-    mv -f build/ossein.new build/ossein
+    cp .build/ossein .build/ossein.new
+    codesign --force --sign - --timestamp=none --entitlements vz.entitlements .build/ossein.new
+    mv -f .build/ossein.new .build/ossein
 
 # Resolve the digest a buildkit tag currently points at, for bumping buildkit_tag +
 # buildkit_digest above. Anonymous Docker Hub pull token; prints the OCI index digest
@@ -185,7 +185,7 @@ _guest-artifacts:
 
 # Build the initfs and place the real file where //go:embed bundles it.
 _embed-initfs: initfs
-    cp build/initfs.cpio pkg/guestartifacts/initfs.cpio
+    cp .build/initfs.cpio pkg/guestartifacts/initfs.cpio
 
 # Fetch + cosign/sha verify the pinned guest kernel and place it where //go:embed
 # bundles it (pkg/guestartifacts/kernel-arm64). BUILD-TIME only — the runtime carries
@@ -222,13 +222,13 @@ fetch-kernel:
     cp "$tmp/kernel-arm64" "$dest"
     echo ">> embedded guest kernel $tag -> $dest"
 
-# Build the guest initfs → build/initfs.cpio: cross-compile PID 1 static, build the
+# Build the guest initfs → .build/initfs.cpio: cross-compile PID 1 static, build the
 # host-side packaging tool, then pack the binary at /sbin/vminitd (matching the
 # kernel's init= cmdline, so a fresh initfs is a drop-in for an unchanged host).
 initfs:
-    {{ linux_env }} go build -trimpath -ldflags "-s -w" -o build/vminitd ./guest/vminitd
-    go build -o build/build-initfs ./hack/build-initfs
-    build/build-initfs -in build/vminitd -out build/initfs.cpio
+    {{ linux_env }} go build -trimpath -ldflags "-s -w" -o .build/vminitd ./guest/vminitd
+    go build -o .build/build-initfs ./hack/build-initfs
+    .build/build-initfs -in .build/vminitd -out .build/initfs.cpio
 
 # Regenerate the Connect tree from the vendored proto (see proto/PIN). ONE proto, ONE
 # output tree (internal/sandbox), imported by both the host client (pkg/guest) and
@@ -242,10 +242,10 @@ proto:
     # aqua: the generator and the connect runtime must be the same version, and
     # one go.mod entry is the only pin that makes skew impossible. Built here
     # rather than installed, so nothing leaks onto the hermetic PATH.
-    mkdir -p build
-    go build -o build/protoc-gen-connect-go connectrpc.com/connect/v2/cmd/protoc-gen-connect-go
+    mkdir -p .build
+    go build -o .build/protoc-gen-connect-go connectrpc.com/connect/v2/cmd/protoc-gen-connect-go
     protoc -I proto \
-      --plugin=protoc-gen-connect-go=build/protoc-gen-connect-go \
+      --plugin=protoc-gen-connect-go=.build/protoc-gen-connect-go \
       --go_out=internal/sandbox --go_opt=paths=source_relative \
       --go_opt=MSandboxContext.proto=github.com/farcloser/ossein/internal/sandbox \
       --connect-go_out=internal/sandbox --connect-go_opt=paths=source_relative \
@@ -262,7 +262,7 @@ proto:
 kernel_build := "../ossein-kernel/build"
 
 build-bench:
-    {{ linux_env }} go build -trimpath -ldflags "-s -w" -o build/bench ./hack/bench
+    {{ linux_env }} go build -trimpath -ldflags "-s -w" -o .build/bench ./hack/bench
 
 # The cross-runtime benches compare against runtimes installed OUTSIDE the hermetic
 # sandbox (apple-container in /usr/local/bin, podman in homebrew, docker/orbstack in
@@ -276,15 +276,15 @@ ambient_path := env_var('PATH')
 # cross-runtime suite vs OrbStack + Docker Desktop, each with/without seccomp, plus
 # ossein on the baseline kernel. All runtimes pinned to 2 visible CPUs. Kernels come from
 # the ossein-kernel project (build them there first).
-bench-external ossein="build/ossein" initfs="build/initfs.cpio" kernel=(kernel_build / "kernel-arm64") baseline=(kernel_build / "kernel-arm64.baseline"): build-bench
+bench-external ossein=".build/ossein" initfs=".build/initfs.cpio" kernel=(kernel_build / "kernel-arm64") baseline=(kernel_build / "kernel-arm64.baseline"): build-bench
     PATH="{{ ambient_path }}" bash hack/bench-external.sh {{ ossein }} {{ initfs }} {{ kernel }} {{ baseline }}
 
 # Runs the in-tree perf-arm64 built by ossein-kernel, copied in because the bench
-# mounts THIS repo's build/. `nopatch` adds a second ossein row on the unpatched
+# mounts THIS repo's .build/. `nopatch` adds a second ossein row on the unpatched
 # kernel — same binary/initfs/config, so the two rows isolate kernel/patches/.
-bench-perf ossein="build/ossein" initfs="build/initfs.cpio" kernel=(kernel_build / "kernel-arm64") nopatch=(kernel_build / "kernel-arm64.nopatch"): build-wfeprobe
+bench-perf ossein=".build/ossein" initfs=".build/initfs.cpio" kernel=(kernel_build / "kernel-arm64") nopatch=(kernel_build / "kernel-arm64.nopatch"): build-wfeprobe
     @test -f {{ kernel_build }}/perf-arm64 || { echo "missing {{ kernel_build }}/perf-arm64 — build the kernel first: (cd ../ossein-kernel && just kernel)" >&2; exit 1; }
-    cp -f {{ kernel_build }}/perf-arm64 build/perf-arm64
+    cp -f {{ kernel_build }}/perf-arm64 .build/perf-arm64
     PATH="{{ ambient_path }}" bash hack/bench-perf.sh {{ ossein }} {{ initfs }} {{ kernel }} {{ nopatch }}
 
 # The tuning loop: bench-perf restricted to the two ossein kernels (the patched/nopatch A/B —
@@ -292,28 +292,28 @@ bench-perf ossein="build/ossein" initfs="build/initfs.cpio" kernel=(kernel_build
 # lima, which are context rather than feedback and cost most of the wall-clock. ~4min vs ~15.
 # (`just` recipe args are positional, so this is a recipe rather than a flag on bench-perf;
 # the script itself just honours BENCH_FOCUS=1 if you prefer the env var.)
-bench-perf-focus ossein="build/ossein" initfs="build/initfs.cpio" kernel=(kernel_build / "kernel-arm64") nopatch=(kernel_build / "kernel-arm64.nopatch"): build-wfeprobe
+bench-perf-focus ossein=".build/ossein" initfs=".build/initfs.cpio" kernel=(kernel_build / "kernel-arm64") nopatch=(kernel_build / "kernel-arm64.nopatch"): build-wfeprobe
     @test -f {{ kernel_build }}/perf-arm64 || { echo "missing {{ kernel_build }}/perf-arm64 — build the kernel first: (cd ../ossein-kernel && just kernel)" >&2; exit 1; }
-    cp -f {{ kernel_build }}/perf-arm64 build/perf-arm64
+    cp -f {{ kernel_build }}/perf-arm64 .build/perf-arm64
     BENCH_FOCUS=1 PATH="{{ ambient_path }}" bash hack/bench-perf.sh {{ ossein }} {{ initfs }} {{ kernel }} {{ nopatch }}
 
 # Each runtime's `run` path: a kernel vmlinux compile in the container rootfs, no
 # mount, COLD every iteration.
-bench-run ossein="build/ossein" runs="5":
+bench-run ossein=".build/ossein" runs="5":
     BENCH_KERNEL_URL="$(limen pins get bench-kernel-source url)" \
     BENCH_KERNEL_SHA256="$(limen pins get bench-kernel-source sha256)" \
     PATH="{{ ambient_path }}" bash hack/bench-run.sh {{ ossein }} {{ runs }}
 
 # Each runtime's image-BUILD path (ossein via buildkitd + buildctl), same workload.
-bench-build ossein="build/ossein" runs="5":
+bench-build ossein=".build/ossein" runs="5":
     BENCH_KERNEL_URL="$(limen pins get bench-kernel-source url)" \
     BENCH_KERNEL_SHA256="$(limen pins get bench-kernel-source sha256)" \
     PATH="{{ ambient_path }}" bash hack/bench-build.sh {{ ossein }} {{ runs }}
 
-# Cross-build the WFE probe → build/wfeprobe (linux/arm64, static). Answers whether the
+# Cross-build the WFE probe → .build/wfeprobe (linux/arm64, static). Answers whether the
 # hypervisor traps WFE and whether a WFE-parked CPU wakes from a remote store at spin
 # speed — the two facts that decide if IPI-free polling idle is possible in the guest.
 # Also the canary: Apple guarantees nothing here, so a macOS update could change it.
-# build/ossein run --cpus 4 -v "$PWD/build:/bench" debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 /bench/wfeprobe
+# .build/ossein run --cpus 4 -v "$PWD/.build:/bench" debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 /bench/wfeprobe
 build-wfeprobe:
-    {{ linux_env }} go build -trimpath -ldflags "-s -w" -o build/wfeprobe ./hack/wfeprobe
+    {{ linux_env }} go build -trimpath -ldflags "-s -w" -o .build/wfeprobe ./hack/wfeprobe
