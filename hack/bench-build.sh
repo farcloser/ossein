@@ -22,7 +22,7 @@
 # usage: bench-build.sh [ossein-bin] [runs]
 set -uo pipefail
 
-OSSEIN="${1:-../build/ossein}"
+OSSEIN="${1:-../.build/ossein}"
 RUNS="${2:-5}"
 CPUS=4                                          # pin ossein's buildkit VM to match the run bench
 

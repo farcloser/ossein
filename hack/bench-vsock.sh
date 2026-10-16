@@ -46,21 +46,21 @@ trap 'rm -rf "$SCRATCH"' EXIT
 GUEST_RELAY=guest/internal/guestagent/proxy.go
 HOST_RELAY=pkg/container/container.go
 
-# build_variant LABEL [OVERLAY] — produce build/vsockbench-<LABEL> (host) and
-# build/initfs-<LABEL>.cpio (guest), optionally through a go overlay file.
+# build_variant LABEL [OVERLAY] — produce .build/vsockbench-<LABEL> (host) and
+# .build/initfs-<LABEL>.cpio (guest), optionally through a go overlay file.
 build_variant() {
     local label="$1" overlay="${2:-}"
     local -a ov=()
     [ -n "$overlay" ] && ov=(-overlay "$overlay")
 
     "${LINUX_ENV[@]}" go build "${ov[@]}" -trimpath -ldflags "-s -w" \
-        -o "build/vminitd-$label" ./guest/vminitd
-    go build -o build/build-initfs ./hack/build-initfs
-    build/build-initfs -in "build/vminitd-$label" -out "build/initfs-$label.cpio"
-    CGO_ENABLED=1 go build "${ov[@]}" -o "build/vsockbench-$label" ./hack/vsockbench 2>&1 \
+        -o ".build/vminitd-$label" ./guest/vminitd
+    go build -o .build/build-initfs ./hack/build-initfs
+    .build/build-initfs -in ".build/vminitd-$label" -out ".build/initfs-$label.cpio"
+    CGO_ENABLED=1 go build "${ov[@]}" -o ".build/vsockbench-$label" ./hack/vsockbench 2>&1 \
         | grep -v 'duplicate libraries' || true
     codesign --force --sign - --timestamp=none --entitlements vz.entitlements \
-        "build/vsockbench-$label" 2>/dev/null
+        ".build/vsockbench-$label" 2>/dev/null
 }
 
 # make_overlay SIZE — write patched copies of both relay files under SCRATCH
@@ -94,14 +94,14 @@ EOF
 run_variant() {
     local label="$1"
     echo "== $label" | tee -a "$OUT"
-    "build/vsockbench-$label" \
-        -initfs "build/initfs-$label.cpio" -kernel pkg/guestartifacts/kernel-arm64 \
-        -bench-dir build -size "$BYTES" -streams "$STREAMS" -runs "$RUNS" -label "$label" \
+    ".build/vsockbench-$label" \
+        -initfs ".build/initfs-$label.cpio" -kernel pkg/guestartifacts/kernel-arm64 \
+        -bench-dir .build -size "$BYTES" -streams "$STREAMS" -runs "$RUNS" -label "$label" \
         | tee -a "$OUT"
 }
 
 [ -f pkg/guestartifacts/kernel-arm64 ] || just fetch-kernel
-"${LINUX_ENV[@]}" go build -trimpath -ldflags "-s -w" -o build/vsockpeer ./hack/vsockpeer
+"${LINUX_ENV[@]}" go build -trimpath -ldflags "-s -w" -o .build/vsockpeer ./hack/vsockpeer
 
 echo ">> building stock"
 build_variant stock
@@ -113,7 +113,7 @@ done
 
 if [ "${BENCH_BUILD_ONLY:-0}" = 1 ]; then
     echo ">> BENCH_BUILD_ONLY: variants built, not run"
-    ls -la build/vsockbench-* build/initfs-*.cpio
+    ls -la .build/vsockbench-* .build/initfs-*.cpio
     exit 0
 fi
 
