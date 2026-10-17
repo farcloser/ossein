@@ -10,9 +10,9 @@ Desktop.ini
 *~
 
 # Scratch / work-in-progress files
-*.local
+# *.local
 _scratch/
-WIP_*
+# WIP_*
 
 # Guest artifacts embedded at build time (just build fetches/builds them)
 /pkg/guestartifacts/kernel-arm64
