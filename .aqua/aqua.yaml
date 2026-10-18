@@ -25,6 +25,9 @@ packages:
   # `just proto` regenerates the Connect tree with.
   - name: protocolbuffers/protobuf/protoc@v36.2
   - name: protocolbuffers/protobuf-go/protoc-gen-go@v1.36.12
+  # The buildctl `just bench-build` drives buildkitd with; the same release as
+  # the buildkit client library and daemon image (renovate groups the three).
+  - name: moby/buildkit@v0.34.0
   # Every other tool limen requires comes from the import, at the versions
   # this limen pins: a limen bump changes that file, never this list
   # (book/tooling.md).
