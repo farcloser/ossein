@@ -308,6 +308,7 @@ bench-run ossein=".build/ossein" runs="5":
 bench-build ossein=".build/ossein" runs="5":
     BENCH_KERNEL_URL="$(limen pins get bench-kernel-source url)" \
     BENCH_KERNEL_SHA256="$(limen pins get bench-kernel-source sha256)" \
+    BUILDCTL="{{ aqua_bin / 'buildctl' }}" \
     PATH="{{ ambient_path }}" bash hack/bench-build.sh {{ ossein }} {{ runs }}
 
 # Cross-build the WFE probe → .build/wfeprobe (linux/arm64, static). Answers whether the

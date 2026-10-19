@@ -15,7 +15,8 @@
 #
 # ossein builds via its OWN buildkitd microVM (`ossein buildkit --detach` +
 # buildctl), which keeps a PERSISTENT cache — so "cold" means pruning it each run
-# (ossein gc --prune-cache). Needs `buildctl` on PATH.
+# (ossein gc --prune-cache). buildctl is aqua's pinned one, passed in by `just
+# bench-build`: the PATH here is ambient, for the other runtimes' CLIs.
 #
 # ⚠ SLOW: minutes/run × RUNS × up-to-5 runtimes.
 #
@@ -34,6 +35,7 @@ TAG='ossein-benchbuild'
 # and handed to the Dockerfile as build args.
 KURL="${BENCH_KERNEL_URL:?run through just bench-build}"
 KSHA="${BENCH_KERNEL_SHA256:?run through just bench-build}"
+BUILDCTL="${BUILDCTL:?run through just bench-build}"
 
 # One real docker CLI (from PATH) drives BOTH daemons; --context selects which. label=context.
 DOCKER="$(command -v docker 2>/dev/null || true)"
@@ -53,12 +55,12 @@ wipe_ossein() { "$OSSEIN" stop >/dev/null 2>&1; "$OSSEIN" gc --prune-cache >/dev
 
 # --- ossein build via its buildkitd + buildctl -----------------------------
 run_ossein_build() {
-  command -v buildctl >/dev/null 2>&1 || { echo "buildctl not on PATH" >&2; return 1; }
+  [ -x "$BUILDCTL" ] || { echo "no buildctl at $BUILDCTL — aqua -c .aqua/aqua.yaml install" >&2; return 1; }
   # start a fresh buildkitd microVM (pinned to CPUS vCPUs so ossein's build is
   # CPU-consistent with its run bench) and export BUILDKIT_HOST into this subshell.
   eval "$("$OSSEIN" buildkit --detach --cpus "$CPUS" 2>/dev/null)" || { echo "ossein buildkit --detach failed" >&2; return 1; }
   [ -n "${BUILDKIT_HOST:-}" ] || { echo "no BUILDKIT_HOST from ossein buildkit" >&2; return 1; }
-  buildctl build --frontend dockerfile.v0 \
+  "$BUILDCTL" build --frontend dockerfile.v0 \
     --local context="$CTX" --local dockerfile="$CTX" --no-cache \
     --opt build-arg:KURL="$KURL" --opt build-arg:KSHA="$KSHA"
 }
