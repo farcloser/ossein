@@ -14,12 +14,12 @@ require (
 	connectrpc.com/connect/v2 v2.0.1
 	github.com/alecthomas/kong v1.16.1
 	github.com/diskfs/go-diskfs v1.9.4
-	github.com/forkcloser/erofs v1.0.2
+	github.com/forkcloser/erofs v1.1.0
 	github.com/google/go-containerregistry v0.22.1
 	github.com/mdlayher/vsock v1.3.0
 	github.com/moby/buildkit v0.34.0
 	github.com/moby/sys/capability v0.4.0
-	github.com/mycophonic/primordium v0.15.0
+	github.com/mycophonic/primordium v0.15.1
 	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/tonistiigi/fsutil v0.0.0-20261009124904-c1c5bffae3b5
 	github.com/vishvananda/netlink v1.3.1
