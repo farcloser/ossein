@@ -29,11 +29,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install aqua (pinned, checksum-verified)
-        uses: ./.github/actions/setup-aqua
-
-      - name: Install pinned tools
-        run: aqua install --only-link
+      - name: Install hermetic (pinned, verified)
+        uses: ./.github/actions/setup-hermetic
 
       - name: Build (kernel fetch + verify, initfs, embed, codesign)
         run: just build
