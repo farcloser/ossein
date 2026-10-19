@@ -15,10 +15,6 @@ licenses:
 golangci:
   linters:
     exclusions:
-      paths:
-        # A vendored upstream fork (third_party/vz/FORK.md), held as close to
-        # upstream as possible so it can be refreshed or dropped cheaply.
-        - third_party/vz
       rules:
         # Tests are black-box consumers: the rules about API hygiene and
         # production robustness do not apply to them, the rules about
@@ -46,11 +42,17 @@ golangci:
         # noise.
         ignore-package-globs:
           - github.com/farcloser/ossein/*
+          # The binding's errors already carry their sentinel (vz.ErrVsock,
+          # vmnet.ErrNetwork) and say what failed; pkg/vm hands them on as is.
+          - github.com/forkcloser/vz
+          - github.com/forkcloser/vz/*
       depguard:
         rules:
           main:
             allow:
               - github.com/mycophonic/primordium
+              # Virtualization.framework: the fork carrying per-VM vmnet networking.
+              - github.com/forkcloser/vz
               # CLI
               - github.com/alecthomas/kong
               # Containers
@@ -82,12 +84,6 @@ golangci:
         forbid:
           - pattern: '^os\.UserHomeDir$'
             msg: "use dirs.HomeDir instead"
-  formatters:
-    exclusions:
-      paths:
-        # Reformatting the vendored fork would make its diff against upstream
-        # unreadable, and would be undone on every refresh.
-        - third_party/vz
 nilaway:
   # Informational for now. Of the six reports on this tree, two are fixed in
   # code; the four left are flows NilAway cannot follow: an argv built by

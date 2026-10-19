@@ -21,11 +21,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forkcloser/vz"
 	"github.com/mycophonic/primordium/bytesize"
 	"golang.org/x/sys/unix"
 
 	"github.com/farcloser/ossein/internal/protocol"
-	"github.com/farcloser/ossein/third_party/vz"
 )
 
 // HostMaxCPUs is every CPU the host has, as far as one guest can use them: the
@@ -337,7 +337,7 @@ func configureNetwork(vmc *vz.VirtualMachineConfiguration, cfg Config) (*Network
 		return nil, err
 	}
 
-	att, err := vz.NewVmnetNetworkDeviceAttachment(network.network)
+	att, err := vz.NewVmnetNetworkDeviceAttachment(network.Network())
 	if err != nil {
 		return nil, fmt.Errorf("%w: vmnet attachment: %w", ErrNetwork, err)
 	}
@@ -515,99 +515,21 @@ func isFinal(state vz.VirtualMachineState) bool {
 	return state == vz.VirtualMachineStateStopped || state == vz.VirtualMachineStateError
 }
 
-// halfCloser is the shutdown(SHUT_WR) half of a duplex conn.
-//
-// The assertion below is the contract Connect and Listen advertise: the conns
-// they hand out can be shut down one direction at a time, so a relay between a
-// vsock hop and anything else can propagate a half-close instead of tearing
-// the whole connection down (pkg/container's bidiPipe is the consumer). vz
-// gained CloseWrite in ossein's fork; if a refresh of that fork ever drops it,
-// this fails to compile here rather than silently degrading every proxied
-// connection into "closes when the client stops writing".
-type halfCloser interface {
-	net.Conn
-	CloseWrite() error
-}
-
-var _ halfCloser = (*vz.VirtioSocketConnection)(nil)
-
 // Connect dials a guest vsock port. The guest side must be listening. The
-// returned conn supports CloseWrite (see halfCloser).
+// returned conn supports CloseWrite: a relay between a vsock hop and anything
+// else can propagate a half-close instead of tearing the whole connection
+// down (pkg/container's bidiPipe is the consumer).
 func (m *VM) Connect(port uint32) (net.Conn, error) {
-	dev, err := m.socketDevice()
-	if err != nil {
-		return nil, err
-	}
-
-	conn, err := dev.Connect(port)
-	if err != nil {
-		return nil, fmt.Errorf("%w: connect port %d: %w", ErrVsock, port, err)
-	}
-
-	return conn, nil
+	return vz.VsockConnect(m.vm, port)
 }
 
 // ConnectRetry dials a guest vsock port, retrying until timeout — used for
-// the vminitd control channel right after boot. The guest is usually up
-// within a few ms, so retries start at 2ms and back off mildly (×1.5, capped
-// at 50ms) instead of a fixed coarse poll that would tax every boot.
+// the vminitd control channel right after boot.
 func (m *VM) ConnectRetry(ctx context.Context, port uint32, timeout time.Duration) (net.Conn, error) {
-	// A failed vsock connect to a not-yet-listening guest costs microseconds,
-	// while every unit of backoff is added BOOT LATENCY once the guest turns
-	// ready inside the gap: with the old 50ms cap, readiness at ~150ms was
-	// detected up to 50ms late (and run-to-run boot times wobbled by exactly
-	// that). Cap the delay low: a handful of extra no-op dials in exchange
-	// for bounded, small detection latency.
-	const (
-		initialDelay = 2 * time.Millisecond
-		maxDelay     = 8 * time.Millisecond
-	)
-
-	deadline := time.Now().Add(timeout)
-	delay := initialDelay
-
-	var last error
-
-	for time.Now().Before(deadline) {
-		conn, err := m.Connect(port)
-		if err == nil {
-			return conn, nil
-		}
-
-		last = err
-
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("vsock port %d: %w", port, ctx.Err())
-		case <-time.After(delay):
-		}
-
-		delay = min(delay*3/2, maxDelay)
-	}
-
-	return nil, fmt.Errorf("vsock port %d not answering after %s: %w", port, timeout, last)
+	return vz.VsockConnectRetry(ctx, m.vm, port, timeout)
 }
 
 // Listen opens a host-side listener on a guest vsock port (guest connects out).
 func (m *VM) Listen(port uint32) (net.Listener, error) {
-	dev, err := m.socketDevice()
-	if err != nil {
-		return nil, err
-	}
-
-	listener, err := dev.Listen(port)
-	if err != nil {
-		return nil, fmt.Errorf("%w: listen port %d: %w", ErrVsock, port, err)
-	}
-
-	return listener, nil
-}
-
-func (m *VM) socketDevice() (*vz.VirtioSocketDevice, error) {
-	devs := m.vm.SocketDevices()
-	if len(devs) == 0 {
-		return nil, fmt.Errorf("%w: no device on VM", ErrVsock)
-	}
-
-	return devs[0], nil
+	return vz.VsockListen(m.vm, port)
 }
