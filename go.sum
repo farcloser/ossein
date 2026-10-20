@@ -102,8 +102,8 @@ github.com/forkcloser/blake3 v1.1.0 h1:E0tWTfoLiGurJrwvBcrrkiy1iAE80SX4WHx0BSyUO
 github.com/forkcloser/blake3 v1.1.0/go.mod h1:BLJuiWNe+8WVt0HUpv4WA/Dc/QXXg9WvENESubhOuGQ=
 github.com/forkcloser/erofs v1.1.0 h1:uqVvQAN6SH1ZxAALgbLNJHn7WwgLW7eDGarQa+dHqwc=
 github.com/forkcloser/erofs v1.1.0/go.mod h1:XodLxqIPBoNL9SURdf/oNs9Lo5mazNp9H5481Y0nCf0=
-github.com/forkcloser/vz v0.0.0-20261019075806-098ee6b46f8a h1:8YDCHX6ug2dumdx2FdCJYidrjg4NObcKZqs7WyxGJy8=
-github.com/forkcloser/vz v0.0.0-20261019075806-098ee6b46f8a/go.mod h1:d71ZzXojXLoadGmTWyyaTg8QRIjFpSJELlPU9D8pR8A=
+github.com/forkcloser/vz v0.0.0-20261020070426-d919ebb7900b h1:3orw37ArMkxGz/IMXfvZ1MZQFJ0fSvcYVBRtU8LhaJg=
+github.com/forkcloser/vz v0.0.0-20261020070426-d919ebb7900b/go.mod h1:d71ZzXojXLoadGmTWyyaTg8QRIjFpSJELlPU9D8pR8A=
 github.com/forkcloser/xos v0.1.0 h1:0vfH2xxdCCDv6x7mYvnQ74zTElzb3wce+0wL+782HtE=
 github.com/forkcloser/xos v0.1.0/go.mod h1:XD7TJl5GzHaZbCBDKby6zDS9zQ+R6DAWclFskmRjAco=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=

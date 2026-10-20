@@ -15,7 +15,7 @@ require (
 	github.com/alecthomas/kong v1.16.1
 	github.com/diskfs/go-diskfs v1.9.4
 	github.com/forkcloser/erofs v1.1.0
-	github.com/forkcloser/vz v0.0.0-20261019075806-098ee6b46f8a
+	github.com/forkcloser/vz v0.0.0-20261020070426-d919ebb7900b
 	github.com/google/go-containerregistry v0.22.1
 	github.com/mdlayher/vsock v1.3.0
 	github.com/moby/buildkit v0.34.0
