@@ -46,6 +46,12 @@ golangci:
           # vmnet.ErrNetwork) and say what failed; pkg/vm hands them on as is.
           - github.com/forkcloser/vz
           - github.com/forkcloser/vz/*
+        # connect.NewError builds a new error from a code and a message, as
+        # errors.New does: there is nothing to give context to. The entry is a
+        # substring of the signature wrapcheck prints, module path and major
+        # included.
+        extra-ignore-sigs:
+          - connectrpc.com/connect/v2.NewError(
       depguard:
         rules:
           main:
