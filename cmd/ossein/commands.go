@@ -926,29 +926,34 @@ func resolveSock(flag, instanceDir string) (string, error) {
 
 // waitBuildkit blocks until buildkitd exits. On the signal path the escalation
 // handler (escalateSignals) owns forwarding, which is what makes the final
-// <-waitErr interruptible: a second signal SIGKILLs the guest — ending the
+// <-done interruptible: a second signal SIGKILLs the guest — ending the
 // Wait — and a third exits the process outright.
 func waitBuildkit(ctx context.Context, inst *container.Instance) error {
-	waitErr := make(chan error, 1)
+	var waitErr error
+
+	done := make(chan struct{})
 
 	// Background, not ctx: on Ctrl-C the escalation handler SIGTERMs the guest;
 	// this Wait must keep blocking until buildkitd *actually* exits so the
-	// <-waitErr teardown is synchronized. Cancelling it would abandon the wait
+	// <-done teardown is synchronized. Cancelling it would abandon the wait
 	// (and race a bogus "context canceled" error onto a clean stop).
 	// #nosec G118 -- + waitBuildkit$1: Background is the deliberate teardown context (see comment)
 	go func() { //nolint:contextcheck // + waitBuildkit$1: Background is the deliberate teardown context (see comment)
-		_, err := inst.Wait(context.Background())
-		waitErr <- err
+		defer close(done)
+
+		_, waitErr = inst.Wait(context.Background())
 	}()
 
 	select {
 	case <-ctx.Done():
-		<-waitErr
+		// The wait is the synchronization, not the result: the guest was told
+		// to stop, and how Wait says it ended is not an error of this command.
+		<-done
 
 		return nil
-	case err := <-waitErr:
-		if err != nil {
-			return fmt.Errorf("buildkitd exited: %w", err)
+	case <-done:
+		if waitErr != nil {
+			return fmt.Errorf("buildkitd exited: %w", waitErr)
 		}
 
 		return fmt.Errorf("%w: exited unexpectedly", errBuildkit)
