@@ -254,12 +254,12 @@ proto:
     just do fix go
 
 # ---------------------------------------------------------------------------
-# Benches. Kernels and perf-arm64 come from ../ossein-kernel/build (build them
-# there: `just kernel`); ossein's own bench artifacts stay in ./build.
+# Benches. Kernels and perf-arm64 come from ../ossein-kernel/.build (build them
+# there: `just kernel`); ossein's own bench artifacts stay in ./.build.
 # ---------------------------------------------------------------------------
 
 # Where the sibling ossein-kernel project drops its build outputs (kernels + perf-arm64).
-kernel_build := "../ossein-kernel/build"
+kernel_build := "../ossein-kernel/.build"
 
 build-bench:
     {{ linux_env }} go build -trimpath -ldflags "-s -w" -o .build/bench ./hack/bench
