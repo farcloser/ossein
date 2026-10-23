@@ -100,8 +100,8 @@ github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeO
 github.com/felixge/httpsnoop v1.1.0/go.mod h1:Zqxgdd+1Rkcz8euOqdr7lqgCRJztwr5hp9vDSi5UZCE=
 github.com/forkcloser/blake3 v1.1.0 h1:E0tWTfoLiGurJrwvBcrrkiy1iAE80SX4WHx0BSyUOR8=
 github.com/forkcloser/blake3 v1.1.0/go.mod h1:BLJuiWNe+8WVt0HUpv4WA/Dc/QXXg9WvENESubhOuGQ=
-github.com/forkcloser/erofs v1.1.0 h1:uqVvQAN6SH1ZxAALgbLNJHn7WwgLW7eDGarQa+dHqwc=
-github.com/forkcloser/erofs v1.1.0/go.mod h1:XodLxqIPBoNL9SURdf/oNs9Lo5mazNp9H5481Y0nCf0=
+github.com/forkcloser/erofs v1.1.1 h1:nQy6WoGDpBZlslYcCYyrfQ3D9Xshj1LTJ49mlCiM7b8=
+github.com/forkcloser/erofs v1.1.1/go.mod h1:XodLxqIPBoNL9SURdf/oNs9Lo5mazNp9H5481Y0nCf0=
 github.com/forkcloser/vz v0.0.0-20261021110735-54c39ccff4fb h1:xINLdk4Uggc87uGV/M/hHE18gDJcjkqvMpq6udv/XiA=
 github.com/forkcloser/vz v0.0.0-20261021110735-54c39ccff4fb/go.mod h1:d71ZzXojXLoadGmTWyyaTg8QRIjFpSJELlPU9D8pR8A=
 github.com/forkcloser/xos v0.1.0 h1:0vfH2xxdCCDv6x7mYvnQ74zTElzb3wce+0wL+782HtE=
