@@ -18,7 +18,7 @@ require (
 	github.com/forkcloser/vz v0.1.0
 	github.com/google/go-containerregistry v0.22.1
 	github.com/mdlayher/vsock v1.3.0
-	github.com/moby/buildkit v0.34.0
+	github.com/moby/buildkit v0.34.1
 	github.com/moby/sys/capability v0.4.0
 	github.com/mycophonic/primordium v0.15.1
 	github.com/opencontainers/runtime-spec v1.3.0
