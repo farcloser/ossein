@@ -19,7 +19,7 @@ require (
 	github.com/google/go-containerregistry v0.22.1
 	github.com/mdlayher/vsock v1.3.0
 	github.com/moby/buildkit v0.34.1
-	github.com/moby/sys/capability v0.4.0
+	github.com/moby/sys/capability v0.5.0
 	github.com/mycophonic/primordium v0.15.1
 	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/tonistiigi/fsutil v0.0.0-20261009124904-c1c5bffae3b5
