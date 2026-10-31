@@ -22,7 +22,7 @@ require (
 	github.com/moby/sys/capability v0.5.0
 	github.com/mycophonic/primordium v0.15.1
 	github.com/opencontainers/runtime-spec v1.3.0
-	github.com/tonistiigi/fsutil v0.0.0-20261009124904-c1c5bffae3b5
+	github.com/tonistiigi/fsutil v0.0.0-20261027232937-ca65610c2295
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
