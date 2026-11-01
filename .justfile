@@ -175,6 +175,12 @@ buildkit-digest tag=buildkit_tag:
         "https://registry-1.docker.io/v2/${repo}/manifests/{{ tag }}" \
         | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: //p'
 
+# The shared Go test recipes (`just do test go unit|race|fuzz|cover`) run this
+# first when it exists; the CI race and fuzz lanes call them directly, not the
+# `test` aggregate above, and pkg/guestartifacts does not compile without the
+# embedded kernel and initfs.
+_test-prepare: _guest-artifacts
+
 # Ensure the real embed artifacts exist for a compile (lint/test/go build), producing
 # them only if absent. `just build` always refreshes them via its own deps.
 _guest-artifacts:
