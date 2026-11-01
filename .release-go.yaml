@@ -73,3 +73,11 @@ release:
 
 changelog:
   use: github-native
+
+sboms:
+  - artifacts: archive
+    env:
+      - SYFT_FILE_METADATA_CATALOGER_ENABLED=true
+      - SYFT_CHECK_FOR_APP_UPDATE=false
+      - HERMETIC_ROOT_DIR={{ envOrDefault "HERMETIC_ROOT_DIR" "" }}
+      - HERMETIC_CONFIG={{ envOrDefault "HERMETIC_CONFIG" "" }}
