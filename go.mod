@@ -12,7 +12,7 @@ go 1.26.8
 
 require (
 	connectrpc.com/connect/v2 v2.0.2
-	github.com/alecthomas/kong v1.16.1
+	github.com/alecthomas/kong v1.17.0
 	github.com/diskfs/go-diskfs v1.9.4
 	github.com/forkcloser/erofs v1.1.1
 	github.com/forkcloser/vz v0.1.0
