@@ -17,12 +17,12 @@ require (
 	github.com/forkcloser/erofs v1.1.1
 	github.com/forkcloser/vz v0.1.0
 	github.com/google/go-containerregistry v0.22.1
-	github.com/mdlayher/vsock v1.3.0
+	github.com/mdlayher/vsock v1.4.0
 	github.com/moby/buildkit v0.34.1
 	github.com/moby/sys/capability v0.5.0
 	github.com/mycophonic/primordium v0.15.1
 	github.com/opencontainers/runtime-spec v1.3.0
-	github.com/tonistiigi/fsutil v0.0.0-20261027232937-ca65610c2295
+	github.com/tonistiigi/fsutil v0.0.0-20261103125000-e075fd9305eb
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
@@ -65,7 +65,7 @@ require (
 	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/lmittmann/tint v1.2.1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/mdlayher/socket v0.7.0 // indirect
+	github.com/mdlayher/socket v0.8.0 // indirect
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/patternmatcher v0.6.1 // indirect
 	github.com/moby/sys/signal v0.7.1 // indirect
@@ -93,7 +93,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
