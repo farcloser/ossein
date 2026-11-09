@@ -60,12 +60,14 @@ checksum:
   name_template: checksums.txt
 
 signs:
-  - cmd: sh
+  - cmd: just
     artifacts: checksum
     signature: "${artifact}.sigstore.json"
     args:
-      - -c
-      - 'if [ -n "${COSIGN_KEY:-}" ]; then cosign sign-blob --yes --key "${COSIGN_KEY}" --use-signing-config=false --bundle "${signature}" "${artifact}"; else cosign sign-blob --yes --bundle "${signature}" "${artifact}"; fi'
+      - do
+      - release-sign
+      - "${artifact}"
+      - "${signature}"
 
 release:
   prerelease: auto
