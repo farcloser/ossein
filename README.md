@@ -28,9 +28,15 @@ Virtualization.framework; there is no daemon, nothing to install system-wide.
 ### From a release
 
 Every release ships `ossein_<version>_darwin_arm64.tar.gz` — `ossein` and its
-docker-shaped front `ossein-docker`, side by side — a `checksums.txt`, and a
-Sigstore bundle signed keylessly by the release workflow itself — there is no
-signing key anywhere to leak. Verify before trusting:
+docker-shaped front `ossein-docker`, side by side — its SBOM
+(`<archive>.sbom.json`, SPDX), a `checksums.txt`, and a Sigstore bundle signed
+keylessly by the release workflow itself — there is no signing key anywhere to
+leak. The workflow also attests the build provenance of every archive, SBOM and
+`checksums.txt`. Verify before trusting, either way:
+
+```sh
+gh attestation verify ossein_*_darwin_arm64.tar.gz --repo farcloser/ossein
+```
 
 ```sh
 cosign verify-blob --bundle checksums.txt.sigstore.json \
@@ -42,10 +48,11 @@ shasum -a 256 --check --ignore-missing checksums.txt
 tar xzf ossein_*_darwin_arm64.tar.gz ossein ossein-docker
 ```
 
-The binary is signed ad hoc with the Virtualization entitlement — there is no
-Apple developer account behind this project, so it carries no Developer ID and
-is not notarized. macOS therefore quarantines it as a download, and the first
-run is refused until you clear that bit yourself:
+The binary is signed ad hoc with the Virtualization entitlement, which grants
+the entitlement and claims no identity: no Developer ID, not notarized. A
+browser download is quarantined, and, with no notarization to consult, the
+first run is refused until you clear that bit yourself (an install through
+hermetic carries no quarantine attribute and needs none of this):
 
 ```sh
 xattr -d com.apple.quarantine ossein
@@ -53,8 +60,8 @@ xattr -d com.apple.quarantine ossein
 ```
 
 Clearing quarantine on an unverified download would be switching off a
-protection blind; after the cosign step above it is an informed decision, which
-is why the verification comes first.
+protection blind; after the verification above it is an informed decision,
+which is why the verification comes first.
 
 ### From source
 
@@ -68,9 +75,10 @@ just build        # fetches + verifies the pinned guest kernel, builds the initf
 ### Releasing
 
 From a clean `main`, `just do release vX.Y.Z` creates the signed tag and pushes
-it; the release workflow builds the binary, signs the checksums keyless (cosign,
-Fulcio) and publishes the GitHub release. Consumers verify it as described under
-"From a release" above.
+it; the release workflow builds the binary and its SBOM, signs the checksums
+keyless (cosign, Fulcio), publishes the GitHub release and attests the build
+provenance of every archive, SBOM and checksums.txt. Consumers verify it as
+described under "From a release" above.
 
 ## Motivation
 

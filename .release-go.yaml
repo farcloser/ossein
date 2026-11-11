@@ -30,9 +30,10 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     hooks:
       # Ad-hoc signature carrying the Virtualization entitlement — the same
-      # signature `just build` applies. Ad hoc, because there is no Apple
-      # developer account behind this project: a downloaded binary is
-      # quarantined by Gatekeeper until the user clears it (README, Install).
+      # signature `just build` applies. The signing policy's exception
+      # (limen book/releasing.md, "The signing and provenance policy"): a
+      # binary that needs an entitlement to run at all is signed ad hoc for
+      # it and no further; no Developer ID, not notarized (README, Install).
       post:
         - codesign --force --sign - --timestamp=none --entitlements vz.entitlements {{ .Path }}
 
