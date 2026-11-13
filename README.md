@@ -32,18 +32,21 @@ docker-shaped front `ossein-docker`, side by side — its SBOM
 (`<archive>.sbom.json`, SPDX), a `checksums.txt`, and a Sigstore bundle signed
 keylessly by the release workflow itself — there is no signing key anywhere to
 leak. The workflow also attests the build provenance of every archive, SBOM and
-`checksums.txt`. Verify before trusting, either way:
+`checksums.txt`. Verify before trusting, either way, with `tag` set to the
+release's tag: both hold the signer to the release workflow at that tag.
 
 ```sh
+tag=vX.Y.Z
 gh attestation verify ossein_*_darwin_arm64.tar.gz --repo farcloser/ossein \
-  --signer-workflow farcloser/ossein/.github/workflows/release.yaml
+  --signer-workflow "farcloser/ossein/.github/workflows/release.yaml@refs/tags/${tag}"
 ```
 
 ```sh
+tag=vX.Y.Z
 cosign verify-blob --bundle checksums.txt.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp \
-    'https://github.com/farcloser/ossein/\.github/workflows/release\.yaml@refs/tags/v.*' \
+  --certificate-identity \
+    "https://github.com/farcloser/ossein/.github/workflows/release.yaml@refs/tags/${tag}" \
   checksums.txt
 shasum -a 256 --check --ignore-missing checksums.txt
 tar xzf ossein_*_darwin_arm64.tar.gz ossein ossein-docker
