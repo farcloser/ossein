@@ -66,9 +66,12 @@ jobs:
       # Build provenance for what goreleaser published: every archive, every
       # SBOM and checksums.txt a subject (the cosign bundle beside them is a
       # signature, not a subject). Verifiable with
-      # `gh attestation verify <asset> --repo farcloser/ossein`, no cosign
-      # needed; the cosign bundle over checksums.txt stays the signature. The
-      # paths are goreleaser's dist (.release-go.yaml) and its archive format.
+      # `gh attestation verify <asset> --repo farcloser/ossein
+      # --signer-workflow farcloser/ossein/.github/workflows/release.yaml`,
+      # no cosign needed; --repo alone would accept an attestation signed by
+      # any workflow of the repository. The cosign bundle over checksums.txt
+      # stays the signature. The paths are goreleaser's dist
+      # (.release-go.yaml) and its archive format.
       # GitHub serves attestations for public repositories on every plan and
       # for private ones on Enterprise Cloud only, so a private repository
       # skips this and keeps the bundle.

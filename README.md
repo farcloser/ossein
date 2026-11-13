@@ -35,7 +35,8 @@ leak. The workflow also attests the build provenance of every archive, SBOM and
 `checksums.txt`. Verify before trusting, either way:
 
 ```sh
-gh attestation verify ossein_*_darwin_arm64.tar.gz --repo farcloser/ossein
+gh attestation verify ossein_*_darwin_arm64.tar.gz --repo farcloser/ossein \
+  --signer-workflow farcloser/ossein/.github/workflows/release.yaml
 ```
 
 ```sh
