@@ -311,9 +311,13 @@ bench-run ossein=".build/ossein" runs="5":
     PATH="{{ ambient_path }}" bash hack/bench-run.sh {{ ossein }} {{ runs }}
 
 # Each runtime's image-BUILD path (ossein via buildkitd + buildctl), same workload.
+# buildctl is the pinned one, handed over by path since the ambient PATH hides it. The path
+# is hermetic's link, which reads the pin from the working directory's repository: outside
+# this one it runs whatever buildctl the PATH has.
 bench-build ossein=".build/ossein" runs="5":
     BENCH_KERNEL_URL="$(limen pins get bench-kernel-source url)" \
     BENCH_KERNEL_SHA256="$(limen pins get bench-kernel-source sha256)" \
+    BUILDCTL="{{ hermetic_bin / 'buildctl' }}" \
     PATH="{{ ambient_path }}" bash hack/bench-build.sh {{ ossein }} {{ runs }}
 
 # Cross-build the WFE probe → .build/wfeprobe (linux/arm64, static). Answers whether the
