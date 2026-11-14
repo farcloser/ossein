@@ -241,6 +241,31 @@
       "algorithm": "sha256"
     },
     {
+      "id": "github_release/github.com/moby/buildkit/v0.35.0/buildkit-v0.35.0.darwin-arm64.tar.gz",
+      "checksum": "FB858A787F198AB6BCE6DD9837ED26C2F6B7DD6661A3D1DF612CAE29856C8C90",
+      "algorithm": "sha256"
+    },
+    {
+      "id": "github_release/github.com/moby/buildkit/v0.35.0/buildkit-v0.35.0.linux-amd64.tar.gz",
+      "checksum": "37B3BEFBED28FB72A44D72BF42362C268610386C42FEAFA27CB45EE0B531369C",
+      "algorithm": "sha256"
+    },
+    {
+      "id": "github_release/github.com/moby/buildkit/v0.35.0/buildkit-v0.35.0.linux-arm64.tar.gz",
+      "checksum": "E33872FBC13D7858F2FD4E434697E9A1AA03347A6FE13F86A58C9C3B0E711286",
+      "algorithm": "sha256"
+    },
+    {
+      "id": "github_release/github.com/moby/buildkit/v0.35.0/buildkit-v0.35.0.windows-amd64.tar.gz",
+      "checksum": "365DEAED721BA4C080732EE1232DDCDFD23D05717FAF6A7FEBD96B4CFA1F0E2D",
+      "algorithm": "sha256"
+    },
+    {
+      "id": "github_release/github.com/moby/buildkit/v0.35.0/buildkit-v0.35.0.windows-arm64.tar.gz",
+      "checksum": "8BAB38074278A996F8EF4FEB7659F29340A35E431A96497EA7577A4B87BA434A",
+      "algorithm": "sha256"
+    },
+    {
       "id": "github_release/github.com/protocolbuffers/protobuf-go/v1.36.12/protoc-gen-go.v1.36.12.darwin.arm64.tar.gz",
       "checksum": "951D1D2558BBBC8C6680DCB6D302263FA35302CB6E1FCCAD297A50D21D827F2B",
       "algorithm": "sha256"

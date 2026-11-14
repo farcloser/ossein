@@ -54,11 +54,12 @@
       ]
     },
     {
-      "description": "The buildkit client library and the daemon image move together: one pull request, one review.",
+      "description": "The buildkit client library, the daemon image and the pinned buildctl move together: one pull request, one review.",
       "groupName": "buildkit",
       "matchPackageNames": [
         "github.com/moby/buildkit",
-        "docker.io/moby/buildkit"
+        "docker.io/moby/buildkit",
+        "moby/buildkit"
       ]
     }
   ]
