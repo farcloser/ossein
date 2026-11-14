@@ -39,8 +39,8 @@ import (
 var (
 	version = "0.0.1-dev"
 
-	buildkitImage = "docker.io/moby/buildkit:v0.34.2@" +
-		"sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe"
+	buildkitImage = "docker.io/moby/buildkit:v0.35.0@" +
+		"sha256:aa632b921ef07411d2cb77292cd34213d4f7b384001d6fceef1e1f25bf9752bb"
 )
 
 // appName is the top-level segment for primordium's user dirs
