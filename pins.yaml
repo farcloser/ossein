@@ -13,6 +13,7 @@ pins:
     verify: cosign-sha256sums https://github.com/farcloser/ossein-kernel/releases/download/${version}/SHA256SUMS https://github.com/farcloser/ossein-kernel/releases/download/${version}/SHA256SUMS.cosign.bundle ^(142371135\+[^@]+@users\.noreply\.github\.com|apostasie@farcloser\.world)$ https://github.com/login/oauth
     digest:
       version: 7.2.9-ossein.1
+      source: c6cc434500ae8c41aca29899fdf0ca4b1f3a6f62d6e697b25c8bdc2f1a95ef39
       sha256: 347363194b7685ec98d20d68c3055ee820b1c244f4cec62bacbbd6ed64311617
   # The source tree the run and build benches compile (hack/bench-run.sh,
   # hack/bench-kernel/Dockerfile): a workload, not the guest kernel under test. Held
@@ -26,4 +27,5 @@ pins:
     verify: pgp-sha256sums https://cdn.kernel.org/pub/linux/kernel/v${major}.x/sha256sums.asc https://git.kernel.org/pub/scm/docs/kernel/pgpkeys.git/plain/keys/632D3A06589DA6B1.asc B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1
     digest:
       version: 7.1.3
+      source: d699139adb5081424bbe617fa41c04d53c499f228ef620abbd2b74e320a67145
       sha256: be41c068e88f5242a19bccdbffbe077b18c47b45f627e2325504b4fab79dd1dc
