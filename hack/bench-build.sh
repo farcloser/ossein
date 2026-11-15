@@ -46,6 +46,7 @@ mean()   { awk '{s+=$1;n++} END{if(n)printf "%.0f",s/n}'; }
 row()    { printf "  %-24s %8ss  (median %ss / %s ok)\n" "$1" "$2" "$3" "$4"; }
 
 [ -f "$CTX/Dockerfile" ] || { echo "missing $CTX/Dockerfile" >&2; exit 1; }
+[ -x "$OSSEIN" ] || { echo "no ossein at $OSSEIN: build it first (just build)" >&2; exit 1; }
 
 # --- cold-wipe per runtime -------------------------------------------------
 wipe_docker() { "$1" --context "$2" image rm -f "$BASE" "$TAG" >/dev/null 2>&1; "$1" --context "$2" builder prune -af >/dev/null 2>&1; }
@@ -58,7 +59,11 @@ run_ossein_build() {
   [ -x "$BUILDCTL" ] || { echo "no buildctl at $BUILDCTL" >&2; return 1; }
   # start a fresh buildkitd microVM (pinned to CPUS vCPUs so ossein's build is
   # CPU-consistent with its run bench) and export BUILDKIT_HOST into this subshell.
-  eval "$("$OSSEIN" buildkit --detach --cpus "$CPUS" 2>/dev/null)" || { echo "ossein buildkit --detach failed" >&2; return 1; }
+  # Captured, then evaluated: `eval "$(...)"` returns eval's status, 0 on the empty
+  # output of a failed start. stderr stays: timed() shows it when the build fails.
+  local host
+  host="$("$OSSEIN" buildkit --detach --cpus "$CPUS")" || { echo "ossein buildkit --detach failed" >&2; return 1; }
+  eval "$host"
   [ -n "${BUILDKIT_HOST:-}" ] || { echo "no BUILDKIT_HOST from ossein buildkit" >&2; return 1; }
   "$BUILDCTL" build --frontend dockerfile.v0 \
     --local context="$CTX" --local dockerfile="$CTX" --no-cache \
