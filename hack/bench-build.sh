@@ -67,9 +67,20 @@ run_ossein_build() {
   host="$("$OSSEIN" buildkit --detach --cpus "$CPUS")" || { echo "ossein buildkit --detach failed" >&2; return 1; }
   eval "$host"
   [ -n "${BUILDKIT_HOST:-}" ] || { echo "no BUILDKIT_HOST from ossein buildkit" >&2; return 1; }
+  local rc=0
   "$BUILDCTL" build --frontend dockerfile.v0 \
     --local context="$CTX" --local dockerfile="$CTX" --no-cache \
-    --opt build-arg:KURL="$KURL" --opt build-arg:KSHA="$KSHA"
+    --opt build-arg:KURL="$KURL" --opt build-arg:KSHA="$KSHA" || rc=$?
+  [ "$rc" -eq 0 ] && return 0
+  # The builder's own logs (buildkitd, guest console) sit beside its socket, in an
+  # instance directory that goes when the builder stops, which the next wipe does:
+  # copy them out first.
+  local dir keep
+  dir="$(dirname "${BUILDKIT_HOST#unix://}")"
+  keep="$(mktemp -d "${TMPDIR:-/tmp}/bench-build-ossein.XXXXXX")"
+  cp "$dir/buildkit.log" "$dir/console.log" "$keep/"
+  echo "builder logs: $keep" >&2
+  return "$rc"
 }
 
 timed() {  # <wipe args...> -- <run cmd...> -> seconds, or fail (prints tail on error)
@@ -82,7 +93,7 @@ timed() {  # <wipe args...> -- <run cmd...> -> seconds, or fail (prints tail on 
   local log t0 t1 rc; log="$(mktemp "${TMPDIR:-/tmp}/bench-build-log.XXXXXX")"
   t0=$(date +%s); "${run[@]}" >"$log" 2>&1; rc=$?; t1=$(date +%s)
   if [ "$rc" -eq 0 ]; then echo $((t1 - t0)); rm -f "$log"
-  else { echo "    build FAILED (exit $rc) — last 25 lines:"; tail -25 "$log" | sed 's/^/      | /'; } >&2; rm -f "$log"; return 1; fi
+  else { echo "    build FAILED (exit $rc) — last 25 lines of $log:"; tail -25 "$log" | sed 's/^/      | /'; } >&2; return 1; fi
 }
 
 run_med() { local vals=() v; for _ in $(seq "$RUNS"); do v="$("$@")" && [ -n "$v" ] && vals+=("$v"); done

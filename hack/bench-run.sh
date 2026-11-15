@@ -85,7 +85,7 @@ timed() {  # <wipe-fn args...> -- <run cmd...> -> whole seconds, or fail
   local log t0 t1 rc; log="$(mktemp "${TMPDIR:-/tmp}/bench-run-log.XXXXXX")"
   t0=$(date +%s); "${run[@]}" >"$log" 2>&1; rc=$?; t1=$(date +%s)
   if [ "$rc" -eq 0 ]; then echo $((t1 - t0)); rm -f "$log"
-  else { echo "    run FAILED (exit $rc) — last 25 lines:"; tail -25 "$log" | sed 's/^/      | /'; } >&2; rm -f "$log"; return 1; fi
+  else { echo "    run FAILED (exit $rc) — last 25 lines of $log:"; tail -25 "$log" | sed 's/^/      | /'; } >&2; return 1; fi
 }
 
 run_med() { local vals=() v; for _ in $(seq "$RUNS"); do v="$("$@")" && [ -n "$v" ] && vals+=("$v"); done
