@@ -38,7 +38,9 @@ KSHA="${BENCH_KERNEL_SHA256:?run through just bench-build}"
 BUILDCTL="${BUILDCTL:?run through just bench-build}"
 
 # One real docker CLI (from PATH) drives BOTH daemons; --context selects which. label=context.
-DOCKER="$(command -v docker 2>/dev/null || true)"
+# shellcheck source=hack/bench-lib.sh
+. "$(dirname "$0")/bench-lib.sh"
+DOCKER="$(docker_cli || true)"
 RUNTIMES=( "orbstack=orbstack" "docker-desktop=desktop-linux" )
 
 median() { sort -n | awk '{a[NR]=$1} END{print (NR%2)?a[(NR+1)/2]:(a[NR/2]+a[NR/2+1])/2}'; }
@@ -103,7 +105,7 @@ fi
 
 for spec in "${RUNTIMES[@]}"; do
   IFS='=' read -r label ctx <<<"$spec"
-  [ -n "$DOCKER" ] || { echo ">> $label: (no docker CLI on PATH)"; continue; }
+  [ -n "$DOCKER" ] || { echo ">> $label: (no Docker CLI on PATH)"; continue; }
   "$DOCKER" --context "$ctx" version >/dev/null 2>&1 || { echo ">> $label: (ctx $ctx unreachable)"; continue; }
   echo ">> $label (ctx=$ctx)"
   read -r m md n <<<"$(run_med timed wipe_docker "$DOCKER" "$ctx" -- \

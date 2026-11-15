@@ -107,7 +107,9 @@ lima_avail()   { command -v lima   >/dev/null 2>&1; }   # `lima <cli>` runs <cli
 # Docker-CLI runtimes: <label>=<docker-context>. ONE real docker CLI (resolved from PATH)
 # targets BOTH daemons — --context selects which, so no per-runtime binary is needed. It MUST
 # be explicit: OrbStack hijacks the default endpoint, so without --context the CLI hits OrbStack.
-DOCKER="$(command -v docker 2>/dev/null || true)"
+# shellcheck source=hack/bench-lib.sh
+. "$(dirname "$0")/bench-lib.sh"
+DOCKER="$(docker_cli || true)"
 RUNTIMES=( "orbstack=orbstack" "docker-desktop=desktop-linux" )
 focus_skip && RUNTIMES=( "orbstack=orbstack" )
 KVER_SEEN=""
@@ -231,7 +233,7 @@ if ! focus_skip && command -v container >/dev/null 2>&1; then
 fi
 for spec in "${RUNTIMES[@]}"; do
   IFS='=' read -r label ctx <<<"$spec"
-  [ -n "$DOCKER" ] || { row "$label" "(no docker CLI on PATH)" ""; continue; }
+  [ -n "$DOCKER" ] || { row "$label" "(no Docker CLI on PATH)" ""; continue; }
   kver=$("$DOCKER" --context "$ctx" run --rm "$IMG" uname -r 2>/dev/null | tr -d '[:space:]')
   if [ -z "$kver" ]; then row "$label (ctx=$ctx)" "(unreachable)" "not running / bad context"; continue; fi
   np=$("$DOCKER" --context "$ctx" run --rm --cpuset-cpus="$CPUSET" "$IMG" nproc 2>/dev/null | tr -d '[:space:]')
@@ -296,7 +298,7 @@ for spec in "${PBENCHES[@]}"; do
 
   for rspec in "${RUNTIMES[@]}"; do
     IFS='=' read -r label ctx <<<"$rspec"
-    [ -n "$DOCKER" ] || { row "$label" "(no docker CLI on PATH)" ""; continue; }
+    [ -n "$DOCKER" ] || { row "$label" "(no Docker CLI on PATH)" ""; continue; }
     read -r on ons <<<"$(prun_med  "$DOCKER" --context "$ctx" run --rm --cpuset-cpus="$CPUSET"                                   -v "$B:/bench" "$IMG" "$PERF" "$@")"
     read -r off offs <<<"$(prun_med "$DOCKER" --context "$ctx" run --rm --cpuset-cpus="$CPUSET" --security-opt seccomp=unconfined -v "$B:/bench" "$IMG" "$PERF" "$@")"
     row "$label (seccomp on)"  "$on"  "${ons}  $unit"
