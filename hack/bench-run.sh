@@ -88,7 +88,18 @@ timed() {  # <wipe-fn args...> -- <run cmd...> -> whole seconds, or fail
   else { echo "    run FAILED (exit $rc) — last 25 lines of $log:"; tail -25 "$log" | sed 's/^/      | /'; } >&2; return 1; fi
 }
 
-run_med() { local vals=() v; for _ in $(seq "$RUNS"); do v="$("$@")" && [ -n "$v" ] && vals+=("$v"); done
+# Each iteration says on stderr when it starts and when it ends, with the time of day: a
+# row is minutes times RUNS, and its line only comes once they are all done.
+run_med() {
+  local vals=() v i
+  for i in $(seq "$RUNS"); do
+    echo "    run $i/$RUNS: started $(date +%H:%M:%S)" >&2
+    if v="$("$@")" && [ -n "$v" ]; then
+      vals+=("$v"); echo "    run $i/$RUNS: done $(date +%H:%M:%S), ${v}s" >&2
+    else
+      echo "    run $i/$RUNS: failed $(date +%H:%M:%S)" >&2
+    fi
+  done
   [ ${#vals[@]} -eq 0 ] && { echo "ERR ERR 0"; return; }
   echo "$(printf '%s\n' "${vals[@]}" | mean) $(printf '%s\n' "${vals[@]}" | median) ${#vals[@]}"; }
 
