@@ -96,6 +96,10 @@ echo
 echo ">> ossein (buildkitd + buildctl)"
 read -r m md n <<<"$(run_med timed wipe_ossein -- run_ossein_build)"
 row ossein "$m" "$md" "$n"
+# The last iteration's builder is still up, since only the next wipe stops one. Stop it:
+# the rows below are not to be measured beside a running ossein VM, and none is to
+# outlive the bench.
+"$OSSEIN" stop >/dev/null 2>&1
 
 if command -v container >/dev/null 2>&1; then
   echo ">> apple-container"
