@@ -116,12 +116,15 @@ echo "    context: $CTX   runs: $RUNS   (build -j fixed to 2 in the Dockerfile)"
 echo
 
 echo ">> ossein (buildkitd + buildctl)"
+# An interrupt ends the bench with the iteration's builder still up: stop it on the way out.
+trap 'echo "interrupted: stopping the ossein builder" >&2; "$OSSEIN" stop >/dev/null 2>&1; exit 130' INT TERM
 read -r m md n <<<"$(run_med timed wipe_ossein -- run_ossein_build)"
 row ossein "$m" "$md" "$n"
 # The last iteration's builder is still up, since only the next wipe stops one. Stop it:
 # the rows below are not to be measured beside a running ossein VM, and none is to
 # outlive the bench.
 "$OSSEIN" stop >/dev/null 2>&1
+trap - INT TERM
 
 if command -v container >/dev/null 2>&1; then
   echo ">> apple-container"
