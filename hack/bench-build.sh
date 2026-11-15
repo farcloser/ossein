@@ -54,7 +54,11 @@ row()    { printf "  %-24s %8ss  (median %ss / %s ok)\n" "$1" "$2" "$3" "$4"; }
 wipe_docker() { "$1" --context "$2" image rm -f "$BASE" "$TAG" >/dev/null 2>&1; "$1" --context "$2" builder prune -af >/dev/null 2>&1; }
 wipe_podman() { podman image rm -f "$BASE" "$TAG" >/dev/null 2>&1; podman builder prune -af >/dev/null 2>&1; }
 wipe_apple()  { container image rm "$BASE" "$TAG" >/dev/null 2>&1 || true; container builder prune -f >/dev/null 2>&1 || true; }
-wipe_ossein() { "$OSSEIN" stop >/dev/null 2>&1; "$OSSEIN" gc --prune-cache >/dev/null 2>&1; }
+# `ossein stop` gives a builder 60s to flush its build cache before it kills it. This bench
+# prunes that cache at every iteration, so it has no use for the flush: a builder that has
+# not gone after 5s (a healthy one goes in under 3) is one whose guest no longer answers.
+stop_ossein() { "$OSSEIN" stop --grace 5s >/dev/null 2>&1; }
+wipe_ossein() { stop_ossein; "$OSSEIN" gc --prune-cache >/dev/null 2>&1; }
 
 # --- ossein build via its buildkitd + buildctl -----------------------------
 run_ossein_build() {
@@ -117,13 +121,22 @@ echo
 
 echo ">> ossein (buildkitd + buildctl)"
 # An interrupt ends the bench with the iteration's builder still up: stop it on the way out.
-trap 'echo "interrupted: stopping the ossein builder" >&2; "$OSSEIN" stop >/dev/null 2>&1; exit 130' INT TERM
+# The stop waits out its grace on a builder whose guest no longer answers, and an interrupt
+# during that wait would kill the stop and run this again from the start: from here on
+# interrupts are ignored, by this shell and by the stop it starts.
+stop_on_interrupt() {
+  trap '' INT TERM
+  echo "interrupted: stopping the ossein builder, 5s at most (further interrupts are ignored)" >&2
+  stop_ossein
+  exit 130
+}
+trap stop_on_interrupt INT TERM
 read -r m md n <<<"$(run_med timed wipe_ossein -- run_ossein_build)"
 row ossein "$m" "$md" "$n"
 # The last iteration's builder is still up, since only the next wipe stops one. Stop it:
 # the rows below are not to be measured beside a running ossein VM, and none is to
 # outlive the bench.
-"$OSSEIN" stop >/dev/null 2>&1
+stop_ossein
 trap - INT TERM
 
 if command -v container >/dev/null 2>&1; then
