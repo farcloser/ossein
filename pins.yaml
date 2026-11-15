@@ -17,9 +17,9 @@ pins:
     url: https://github.com/farcloser/ossein-kernel/releases/download/${version}/kernel-arm64
     verify: cosign-sha256sums https://github.com/farcloser/ossein-kernel/releases/download/${version}/SHA256SUMS https://github.com/farcloser/ossein-kernel/releases/download/${version}/SHA256SUMS.cosign.bundle ^(142371135\+[^@]+@users\.noreply\.github\.com|apostasie@farcloser\.world)$ https://github.com/login/oauth
     digest:
-      version: 7.2.9-ossein.1
-      source: c6cc434500ae8c41aca29899fdf0ca4b1f3a6f62d6e697b25c8bdc2f1a95ef39
-      sha256: 347363194b7685ec98d20d68c3055ee820b1c244f4cec62bacbbd6ed64311617
+      version: v7.3.4.1
+      source: b15a3d2b775d95288a83c8bd7974b3c7f15c86d884af9ec0c17780eecc2b4cc9
+      sha256: 5e714e1fa974434404090e474bccb086acfaf47339ec8cdbdd39ec25b7c488ae
   # The source tree the run and build benches compile (hack/bench-run.sh,
   # hack/bench-kernel/Dockerfile): a workload, not the guest kernel under test. Held
   # where it is (renovate.json): a newer tree is a heavier compile, so a bump
