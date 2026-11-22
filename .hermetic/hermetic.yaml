@@ -28,7 +28,7 @@ packages:
   # The buildctl `just bench-build` drives ossein's buildkitd with, at the
   # release of the daemon image and the client module (renovate.json groups
   # the three).
-  - name: moby/buildkit@v0.35.0
+  - name: moby/buildkit@v0.35.1
   # Every other tool limen requires comes from the import, at the versions
   # this limen pins: a limen bump changes that file, never this list
   # (book/tooling.md).
