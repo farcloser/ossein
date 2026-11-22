@@ -241,28 +241,28 @@
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/moby/buildkit/v0.35.0/buildkit-v0.35.0.darwin-arm64.tar.gz",
-      "checksum": "FB858A787F198AB6BCE6DD9837ED26C2F6B7DD6661A3D1DF612CAE29856C8C90",
+      "id": "github_release/github.com/moby/buildkit/v0.35.1/buildkit-v0.35.1.darwin-arm64.tar.gz",
+      "checksum": "69A84F3D350CAA927B398A8FF65130B02B28E72E80D083893DEA17606682DF86",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/moby/buildkit/v0.35.0/buildkit-v0.35.0.linux-amd64.tar.gz",
-      "checksum": "37B3BEFBED28FB72A44D72BF42362C268610386C42FEAFA27CB45EE0B531369C",
+      "id": "github_release/github.com/moby/buildkit/v0.35.1/buildkit-v0.35.1.linux-amd64.tar.gz",
+      "checksum": "B248C2B91698AAFEF11818FE8B681DC5E341581F7D5676709FF45CA1F29B0408",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/moby/buildkit/v0.35.0/buildkit-v0.35.0.linux-arm64.tar.gz",
-      "checksum": "E33872FBC13D7858F2FD4E434697E9A1AA03347A6FE13F86A58C9C3B0E711286",
+      "id": "github_release/github.com/moby/buildkit/v0.35.1/buildkit-v0.35.1.linux-arm64.tar.gz",
+      "checksum": "46C7D1799250BD8B31266ED718715AB9D3464BAD0455D5BFBE48E2EEB92CA965",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/moby/buildkit/v0.35.0/buildkit-v0.35.0.windows-amd64.tar.gz",
-      "checksum": "365DEAED721BA4C080732EE1232DDCDFD23D05717FAF6A7FEBD96B4CFA1F0E2D",
+      "id": "github_release/github.com/moby/buildkit/v0.35.1/buildkit-v0.35.1.windows-amd64.tar.gz",
+      "checksum": "5E9D59A218632A99C7F8590D49522A139E9AC57CEA53A1F6EB92BD5E9C8EB199",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/moby/buildkit/v0.35.0/buildkit-v0.35.0.windows-arm64.tar.gz",
-      "checksum": "8BAB38074278A996F8EF4FEB7659F29340A35E431A96497EA7577A4B87BA434A",
+      "id": "github_release/github.com/moby/buildkit/v0.35.1/buildkit-v0.35.1.windows-arm64.tar.gz",
+      "checksum": "D03347F2B6933B6E8CB99C90BDAE147DAF355D0D20A5B590CD2E437A5008CE8F",
       "algorithm": "sha256"
     },
     {
