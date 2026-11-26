@@ -3,6 +3,7 @@ package image
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"io"
 	"io/fs"
 	"strings"
@@ -272,4 +273,112 @@ func goModeToRaw(mode fs.FileMode) uint32 {
 	}
 
 	return raw
+}
+
+// tarOf writes the given headers, with no content, as a PAX tar.
+func tarOf(t *testing.T, headers ...*tar.Header) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+
+	tarWriter := tar.NewWriter(&buf)
+
+	for _, hdr := range headers {
+		hdr.Format = tar.FormatPAX
+
+		if err := tarWriter.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	return buf.Bytes()
+}
+
+// TestGoEROFSRootMetadata: the root entry is never created, only described,
+// and what the tar says of it must reach the image like any other entry's.
+func TestGoEROFSRootMetadata(t *testing.T) {
+	t.Parallel()
+
+	out, err := buildGoEROFS(io.NopCloser(bytes.NewReader(tarOf(t, &tar.Header{
+		Typeflag: tar.TypeDir, Name: "./", Mode: 0o1770, Uid: 3, Gid: 4,
+		ModTime:    time.Unix(1700000000, 0),
+		PAXRecords: map[string]string{"SCHILY.xattr.user.root": "here"},
+	}))))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := io.ReadAll(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = out.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	img, err := goerofs.Open(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stat := corpusStat(t, img, ".")
+	if perm := goModeToRaw(stat.Mode); perm != 0o1770 {
+		t.Errorf("root: mode %o, want 1770", perm)
+	}
+
+	if stat.UID != 3 || stat.GID != 4 {
+		t.Errorf("root: owner %d:%d, want 3:4", stat.UID, stat.GID)
+	}
+
+	if stat.Mtime != 1700000000 {
+		t.Errorf("root: mtime %d, want 1700000000", stat.Mtime)
+	}
+
+	if stat.Xattrs["user.root"] != "here" {
+		t.Errorf("root: xattr user.root = %q, want %q", stat.Xattrs["user.root"], "here")
+	}
+}
+
+// TestGoEROFSRefusedMetadata: metadata the image cannot hold fails the
+// conversion and names the entry. The Writer keeps no memory of a refusal,
+// so one left unchecked ends as an image that carries the default instead.
+func TestGoEROFSRefusedMetadata(t *testing.T) {
+	t.Parallel()
+
+	// One byte over what an EROFS xattr value can hold.
+	tooLong := strings.Repeat("v", 1<<16)
+
+	for name, hdr := range map[string]*tar.Header{
+		"negative uid":       {Typeflag: tar.TypeReg, Name: "./victim", Mode: 0o644, Uid: -1},
+		"negative gid":       {Typeflag: tar.TypeDir, Name: "./victim", Mode: 0o755, Gid: -1},
+		"xattr value":        {Typeflag: tar.TypeReg, Name: "./victim", Mode: 0o644, PAXRecords: map[string]string{"SCHILY.xattr.user.big": tooLong}},
+		"xattr name":         {Typeflag: tar.TypeSymlink, Name: "./victim", Linkname: "x", PAXRecords: map[string]string{"SCHILY.xattr.user.": "1"}},
+		"negative uid, root": {Typeflag: tar.TypeDir, Name: "./", Mode: 0o755, Uid: -1},
+		"xattr value, root":  {Typeflag: tar.TypeDir, Name: "./", Mode: 0o755, PAXRecords: map[string]string{"SCHILY.xattr.user.big": tooLong}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			want := "/victim"
+			if hdr.Name == "./" {
+				want = "/:"
+			}
+
+			out, err := buildGoEROFS(io.NopCloser(bytes.NewReader(tarOf(t, hdr))))
+			if err == nil {
+				_ = out.Close()
+
+				t.Fatal("conversion succeeded, want a failure")
+			}
+
+			if !errors.Is(err, goerofs.ErrInvalid) || !strings.Contains(err.Error(), want) {
+				t.Fatalf("err = %v, want erofs's ErrInvalid naming %s", err, want)
+			}
+		})
+	}
 }

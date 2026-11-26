@@ -106,21 +106,8 @@ func convertTarToEROFS(tarStream io.Reader, img *os.File, tmpDir string) error {
 			continue
 		}
 
-		name := erofsPath(hdr.Name)
-		if name == "/" {
-			// Root exists implicitly; apply its metadata only.
-			applyEROFSMetadata(writer, "/", hdr)
-
-			continue
-		}
-
-		written, err := writeEROFSEntry(writer, name, hdr, tarReader)
-		if err != nil {
+		if err = convertEROFSEntry(writer, hdr, tarReader); err != nil {
 			return err
-		}
-
-		if written {
-			applyEROFSMetadata(writer, name, hdr)
 		}
 	}
 
@@ -129,6 +116,26 @@ func convertTarToEROFS(tarStream io.Reader, img *os.File, tmpDir string) error {
 	}
 
 	return nil
+}
+
+// convertEROFSEntry writes one tar entry and applies its header metadata.
+func convertEROFSEntry(writer *goerofs.Writer, hdr *tar.Header, content io.Reader) error {
+	name := erofsPath(hdr.Name)
+	if name == "/" {
+		// Root exists implicitly; apply its metadata only.
+		return applyEROFSMetadata(writer, "/", hdr)
+	}
+
+	written, err := writeEROFSEntry(writer, name, hdr, content)
+	if err != nil {
+		return err
+	}
+
+	if !written {
+		return nil
+	}
+
+	return applyEROFSMetadata(writer, name, hdr)
 }
 
 // writeEROFSEntry writes one tar entry at name, one case per entry type, and
@@ -192,18 +199,23 @@ func erofsWriteFile(writer *goerofs.Writer, name string, content io.Reader) erro
 	return nil
 }
 
-// applyEROFSMetadata sets ownership, mode, times and xattrs. Best-effort on
-// the root entry (the library may refuse some root operations), strict
-// elsewhere would be nicer but the Writer carries a sticky error: any
-// failure resurfaces at Close.
-func applyEROFSMetadata(writer *goerofs.Writer, name string, hdr *tar.Header) {
-	_ = writer.Chown(name, hdr.Uid, hdr.Gid)
+// applyEROFSMetadata sets ownership, mode, times and xattrs on an entry the
+// Writer already holds, the root included. Every result is checked: the Writer
+// keeps no memory of a refusal here, so Close knows nothing of one, and a
+// value the image cannot hold (an owner outside 32 bits, an attribute over
+// the on-disk limits) would otherwise leave the default in its place.
+func applyEROFSMetadata(writer *goerofs.Writer, name string, hdr *tar.Header) error {
+	if err := writer.Chown(name, hdr.Uid, hdr.Gid); err != nil {
+		return fmt.Errorf("%s: chown: %w", name, err)
+	}
 
 	// Mkdir/Create already applied a mode, but tar modes carry
 	// setuid/setgid/sticky which fs.FileMode encodes separately —
 	// FileInfo().Mode() converts, Chmod preserves type bits.
 	if hdr.Typeflag != tar.TypeSymlink {
-		_ = writer.Chmod(name, hdr.FileInfo().Mode())
+		if err := writer.Chmod(name, hdr.FileInfo().Mode()); err != nil {
+			return fmt.Errorf("%s: chmod: %w", name, err)
+		}
 	}
 
 	if !hdr.ModTime.IsZero() {
@@ -212,17 +224,26 @@ func applyEROFSMetadata(writer *goerofs.Writer, name string, hdr *tar.Header) {
 			atime = hdr.ModTime
 		}
 
-		_ = writer.Chtimes(name, atime, hdr.ModTime)
+		if err := writer.Chtimes(name, atime, hdr.ModTime); err != nil {
+			return fmt.Errorf("%s: chtimes: %w", name, err)
+		}
 	}
 
 	// Sorted keys: map range order is random per process, and xattr
 	// APPLICATION order becomes on-disk LAYOUT order — unsorted, the image
 	// bytes stop being reproducible and the cache's healing verify breaks.
 	for _, key := range slices.Sorted(maps.Keys(hdr.PAXRecords)) {
-		if attr, ok := strings.CutPrefix(key, paxXattrPrefix); ok {
-			_ = writer.Setxattr(name, attr, hdr.PAXRecords[key])
+		attr, ok := strings.CutPrefix(key, paxXattrPrefix)
+		if !ok {
+			continue
+		}
+
+		if err := writer.Setxattr(name, attr, hdr.PAXRecords[key]); err != nil {
+			return fmt.Errorf("%s: setxattr %s: %w", name, attr, err)
 		}
 	}
+
+	return nil
 }
 
 // paxXattrPrefix is the PAX record key prefix libarchive/GNU tar use to
